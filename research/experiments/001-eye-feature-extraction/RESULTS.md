@@ -75,3 +75,31 @@ Aggregate raw metrics are committed in `results/2026-09-20-windows-i5-8250u-dyna
 The guided runner, protocol, validity classification, visualization and report analysis are implemented. A hardware readiness check reopened camera 0 through Media Foundation at 640×480 and 30 FPS and obtained a 480×640 frame; the first-frame capture call measured 332.4362 ms during that probe. A separate non-fullscreen smoke start loaded the Face Landmarker model, created the CPU inference delegate and entered the camera-processing loop. It was deliberately interrupted before the protocol could complete. No guided JSON, video, image or human result was produced by the smoke check.
 
 This readiness check establishes that the camera, model initialization and application loop can start on this host. It does not establish sustained guided performance, gaze discrimination, participant compliance, target accuracy, accessibility or clinical validity. Those observations require Kofi to run the guided protocol while physically present and following the targets.
+
+## Measured run: 2026-09-20, guided visual validation 01
+
+Source commit: `70bf39b8ca1dea4f5d0b4c4e5ae9007ef2560671` (clean). The protocol completed without operator cancellation on Media Foundation camera 0 at 640×480 and 30 requested/negotiated FPS.
+
+| Metric | Observed value |
+| --- | ---: |
+| Frames | 653 |
+| Tracking good / uncertain / lost | 653 / 0 / 0 |
+| Tracking availability | 100% |
+| Tracking loss events | 0 |
+| Gaze-valid frames | 616 (94.33%) |
+| Rejected frames | 37 (5.67%) |
+| Valid target samples, CENTER / LEFT / RIGHT / UP / DOWN | 41 / 44 / 42 / 42 / 38 |
+| Feature latency median / P90 / max | 37.4073 / 41.2209 / 90.9776 ms |
+| Full processing-loop latency median / P90 / max | 40.7719 / 45.1171 / 810.7669 ms |
+| Process CPU, one-core / total-capacity basis | 134.974% / 16.872% |
+| Resident memory median / max | 209.2930 / 209.8125 MiB |
+
+All five target groups exceeded the configured 20-sample descriptive minimum. The strongest robust median separations were right-eye iris X for RIGHT versus CENTER (4.491) and left-eye iris Y for DOWN versus CENTER (3.181). LEFT was clearer in right-eye iris X (1.628) than left-eye iris X (0.529). UP was only moderate in left-eye iris Y (1.045) and weak in right-eye iris Y (0.524). These are within-run descriptive ratios, not accuracy.
+
+The report's 9.339 FPS value is not a valid sustained-stream rate: its 69.921-second denominator began before camera/model initialization, while observation timestamps span 44.940 seconds. The timestamp-derived stream rate is approximately 14.508 FPS, still below the 24 FPS engineering hypothesis. The difference between the approximately 68.9 ms frame interval and 40.8 ms median processing loop also shows that render/display work needs separate instrumentation.
+
+All 37 rejected observations were labelled `degenerate_eye_geometry`. They formed nine runs; eight were bounded by valid observations and lasted no more than the configured 0.45 seconds. Their low EAR values make blink-like closures a plausible contributor, but the implementation checked minimum vertical span before eye closure, so the reported zero possible blinks is not reliable. This must be corrected prospectively rather than retroactively changing the recorded JSON.
+
+Head-pose and repeated-center medians changed during the sequential protocol. For example, median pitch was approximately 8.11° at discrimination CENTER, 11.75° at LEFT and 6.92° at RIGHT. Because every target occurred in one fixed block, target effects cannot yet be separated cleanly from posture drift or time order. Repeated, seeded-randomized blocks and audio prompts are required before fitting a calibration model.
+
+The exact report is preserved in `results/2026-09-20-windows-i5-8250u-guided-validation-01.json` with SHA-256 `d9808f9ab8485d1bdd9fb700a4bddd4f1ffc3fce87c2e628fbcc73c946b27a94`. It contains derived features but no video, images, raw facial landmark arrays or participant name. It supports continued engineering; it does not validate gaze accuracy, calibration, AAC performance or clinical suitability.

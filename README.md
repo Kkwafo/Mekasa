@@ -10,6 +10,8 @@ Mekasa is an experimental assistive-technology research prototype. It is not a m
 
 The repository is at **Experiment 001 — Eye Feature Extraction**. It implements a Python pipeline boundary for webcam capture, MediaPipe face landmarks, normalized eye/iris features, approximate head pose, an optional visual debug overlay and honest aggregate performance metrics. It does not yet estimate gaze coordinates or provide the four-item communication board.
 
+The first committed hardware run measured the no-visible-face path at 29.96 FPS. It is not evidence of successful face/eye tracking; see the [measured results](research/experiments/001-eye-feature-extraction/RESULTS.md).
+
 ## Architecture
 
 ```text
@@ -61,4 +63,3 @@ The design requires AAC users as design participants, plus relevant SLP/fonoaudi
 ## License
 
 Project source is intended for Apache-2.0 licensing. Third-party models, datasets and assets require their own verified provenance and compatible licenses before redistribution. The current MediaPipe model binary is downloaded explicitly and is not committed.
-

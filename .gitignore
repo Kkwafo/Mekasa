@@ -9,8 +9,7 @@ htmlcov/
 build/
 dist/
 work/
-research/experiments/001-eye-feature-extraction/results/*.json
+research/experiments/001-eye-feature-extraction/results/latest.json
 models/**/*.task
 models/**/*.onnx
 !models/**/metadata.json
-

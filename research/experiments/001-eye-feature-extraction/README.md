@@ -42,7 +42,6 @@ CPU follows psutil process semantics and can exceed 100% when multiple CPU cores
 
 ## Current result
 
-No result is committed until the real dependency environment, model, camera and subject-present run complete. A camera listed by Windows Device Manager is not proof that the current process can open or measure it.
+One real unattended no-visible-face run is committed. It verifies camera access, the no-face MediaPipe path and measurement instrumentation, but it cannot provide tracking or eye-feature stability evidence. Experiment 001 remains incomplete until a participant-present run is performed under stated conditions.
 
 See `RESULTS.md` for measured runs and blockers.
-

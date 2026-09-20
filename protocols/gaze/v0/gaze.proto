@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package mekasa.gaze.v0;
+
+// Transport contract only. Camera frames do not cross this boundary.
+service GazeEngineService {
+  rpc StreamGaze(StreamGazeRequest) returns (stream GazeSample);
+  rpc StartCalibration(StartCalibrationRequest) returns (CalibrationStatus);
+  rpc AddCalibrationTarget(AddCalibrationTargetRequest) returns (CalibrationStatus);
+  rpc FinishCalibration(FinishCalibrationRequest) returns (CalibrationStatus);
+  rpc GetDiagnostics(GetDiagnosticsRequest) returns (Diagnostics);
+}
+
+enum TrackingState {
+  TRACKING_STATE_UNSPECIFIED = 0;
+  TRACKING_GOOD = 1;
+  TRACKING_UNCERTAIN = 2;
+  TRACKING_LOST = 3;
+}
+
+message GazeSample {
+  double normalized_x = 1;
+  double normalized_y = 2;
+  int64 monotonic_timestamp_ns = 3;
+  optional double confidence = 4;
+  TrackingState tracking_state = 5;
+  optional HeadPose head_pose = 6;
+}
+
+message HeadPose {
+  double yaw_degrees = 1;
+  double pitch_degrees = 2;
+  double roll_degrees = 3;
+  string interpretation = 4;
+}
+
+message StreamGazeRequest {}
+message StartCalibrationRequest { string session_id = 1; }
+message AddCalibrationTargetRequest {
+  string session_id = 1;
+  double normalized_x = 2;
+  double normalized_y = 3;
+}
+message FinishCalibrationRequest { string session_id = 1; }
+message CalibrationStatus {
+  string session_id = 1;
+  string state = 2;
+  uint32 accepted_samples = 3;
+  uint32 rejected_samples = 4;
+}
+message GetDiagnosticsRequest {}
+message Diagnostics {
+  double effective_fps = 1;
+  double median_feature_latency_ms = 2;
+  double tracking_availability = 3;
+  uint64 tracking_loss_events = 4;
+}
+

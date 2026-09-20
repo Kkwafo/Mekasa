@@ -1,0 +1,191 @@
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import platform
+import subprocess
+import sys
+from dataclasses import asdict
+from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
+from time import perf_counter, perf_counter_ns
+from typing import Any, cast
+
+import cv2
+import numpy as np
+import numpy.typing as npt
+
+from mekasa_gaze.camera import CameraUnavailableError, OpenCVCameraProvider
+from mekasa_gaze.config import ExperimentConfig
+from mekasa_gaze.landmarker import FaceFeatureExtractor, draw_debug_overlay
+from mekasa_gaze.metrics import ExperimentMetrics
+
+
+def _package_version(name: str) -> str | None:
+    try:
+        return version(name)
+    except PackageNotFoundError:
+        return None
+
+
+def _environment() -> dict[str, Any]:
+    return {
+        "python": sys.version,
+        "platform": platform.platform(),
+        "processor": platform.processor(),
+        "logical_cpu_count": os.cpu_count(),
+        "packages": {
+            name: _package_version(name)
+            for name in ("mediapipe", "numpy", "opencv-contrib-python", "psutil")
+        },
+    }
+
+
+def _source_revision() -> dict[str, str | bool | None]:
+    try:
+        commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        dirty = bool(
+            subprocess.run(
+                ["git", "status", "--porcelain"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+        )
+        return {"commit": commit, "dirty": dirty}
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return {"commit": None, "dirty": None}
+
+
+def _model_identity(model_path: Path) -> dict[str, str | int]:
+    digest = hashlib.sha256()
+    with model_path.open("rb") as model_file:
+        for chunk in iter(lambda: model_file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return {
+        "filename": model_path.name,
+        "size_bytes": model_path.stat().st_size,
+        "sha256": digest.hexdigest(),
+    }
+
+
+def run(
+    *,
+    config: ExperimentConfig,
+    model_path: Path,
+    report_path: Path,
+    display: bool | None = None,
+) -> dict[str, Any]:
+    should_display = config.display if display is None else display
+    camera = OpenCVCameraProvider(
+        index=config.camera_index,
+        backend=config.backend,
+        width=config.width,
+        height=config.height,
+        target_fps=config.target_fps,
+    )
+    with (
+        camera,
+        FaceFeatureExtractor(
+            model_path,
+            min_face_detection_confidence=config.min_face_detection_confidence,
+            min_face_presence_confidence=config.min_face_presence_confidence,
+            min_tracking_confidence=config.min_tracking_confidence,
+        ) as extractor,
+    ):
+        warmup_until = perf_counter() + config.warmup_seconds
+        while perf_counter() < warmup_until:
+            frame = camera.read()
+            rgb = cast(
+                npt.NDArray[np.uint8],
+                cv2.cvtColor(frame.bgr, cv2.COLOR_BGR2RGB),
+            )
+            extractor.extract(
+                rgb,
+                sequence=frame.sequence,
+                timestamp_ns=frame.captured_at_ns,
+            )
+
+        metrics = ExperimentMetrics.start()
+        measure_until = perf_counter() + config.measure_seconds
+        while perf_counter() < measure_until:
+            loop_started_ns = perf_counter_ns()
+            frame = camera.read()
+            rgb = cast(
+                npt.NDArray[np.uint8],
+                cv2.cvtColor(frame.bgr, cv2.COLOR_BGR2RGB),
+            )
+            observation = extractor.extract(
+                rgb,
+                sequence=frame.sequence,
+                timestamp_ns=frame.captured_at_ns,
+            )
+            loop_latency_ms = (perf_counter_ns() - loop_started_ns) / 1_000_000
+            metrics.add(frame, observation, loop_latency_ms)
+            if should_display:
+                cv2.imshow(
+                    "Mekasa Experiment 001 - press Q to stop",
+                    draw_debug_overlay(frame.bgr, observation),
+                )
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
+
+        if should_display:
+            cv2.destroyAllWindows()
+        report = metrics.report(camera.actual_settings, _environment())
+        report["experiment"] = {
+            "name": "Experiment 001 — Eye Feature Extraction",
+            "configuration": asdict(config),
+            "debug_display_enabled": should_display,
+            "model": _model_identity(model_path),
+            "source": _source_revision(),
+        }
+
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return report
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run Mekasa Experiment 001 on a local webcam")
+    parser.add_argument("--config", type=Path, default=Path("config/experiment-001.toml"))
+    parser.add_argument(
+        "--model",
+        type=Path,
+        default=Path("models/gaze/mediapipe-face-landmarker/face_landmarker.task"),
+    )
+    parser.add_argument(
+        "--report",
+        type=Path,
+        default=Path("research/experiments/001-eye-feature-extraction/results/latest.json"),
+    )
+    parser.add_argument("--display", action=argparse.BooleanOptionalAction, default=None)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    try:
+        report = run(
+            config=ExperimentConfig.load(args.config),
+            model_path=args.model,
+            report_path=args.report,
+            display=args.display,
+        )
+    except (CameraUnavailableError, FileNotFoundError, RuntimeError, ValueError) as error:
+        print(f"Experiment 001 could not run: {error}", file=sys.stderr)
+        return 2
+    measurement = report["measurement"]
+    print(json.dumps({"report": str(args.report), **measurement}, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

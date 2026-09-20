@@ -46,6 +46,7 @@ def _report() -> dict[str, object]:
                         "features": {
                             "left_iris_x": x + offset,
                             "right_iris_y": y - offset,
+                            "face_width": 0.35,
                         },
                         "head_pose": None,
                     }
@@ -63,6 +64,8 @@ def _report() -> dict[str, object]:
                 "canvas_width": 1280,
                 "canvas_height": 720,
                 "debug_panel_fraction": 0.3,
+                "min_face_width": 0.30,
+                "max_face_width": 0.45,
                 "targets": [
                     {"name": target.value, "normalized_x": x, "normalized_y": y}
                     for target, (x, y) in positions.items()
@@ -101,6 +104,21 @@ def test_calibration_accepts_one_usable_eye_and_imputes_the_other() -> None:
         artifact["preprocessing"]["closed_or_unusable_eye_iris_imputation"]
         == "training_feature_mean"
     )
+
+
+def test_calibration_excludes_observations_outside_recorded_placement_band() -> None:
+    report = _report()
+    observations = report["observations"]
+    assert isinstance(observations, list)
+    outside = observations[0]
+    assert isinstance(outside, dict)
+    features = outside["features"]
+    assert isinstance(features, dict)
+    features["face_width"] = 0.20
+
+    artifact = calibrate_from_report(report, _config(), report_sha256="abc")
+
+    assert artifact["split"]["training_sample_counts"]["CENTER"] == 5
 
 
 def test_calibration_rejects_legacy_single_block_report() -> None:

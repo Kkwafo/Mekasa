@@ -111,7 +111,10 @@ def run_live_evaluation(
                     max_face_width=guided_config.max_face_width,
                 )
                 raw_prediction: tuple[float, float] | None = None
-                if assessment.gaze_validity in (GazeValidity.VALID, GazeValidity.PARTIAL):
+                if placement.ready and assessment.gaze_validity in (
+                    GazeValidity.VALID,
+                    GazeValidity.PARTIAL,
+                ):
                     try:
                         raw_prediction = calibration_model.predict_observation(
                             observation,

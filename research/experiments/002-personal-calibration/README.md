@@ -40,6 +40,8 @@ C:\Projects\Mekasa\work\bootstrap\Scripts\uv.exe run --locked mekasa-calibrate
 
 The baseline is a closed-form ridge regression with independent normalized X/Y outputs. Inputs are both iris coordinates, coarse face position/size and approximate head pose. Feature standardization is learned only from training blocks.
 
+For reports produced with placement guidance, frames whose detected face width falls outside the recorded preparation band are excluded from fitting and held-out evaluation. The command fails honestly if that leaves too few samples for any target.
+
 The command prints and stores:
 
 - sample counts by target for training and held-out validation;

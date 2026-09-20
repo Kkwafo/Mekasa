@@ -213,6 +213,10 @@ def calibrate_from_report(
                 "When only one eye is usable, iris features from the other eye are replaced "
                 "by training-set means rather than treated as observed gaze evidence."
             ),
+            (
+                "When the source report defines face-size placement bounds, observations "
+                "outside that band are excluded from calibration."
+            ),
             "Closest-target hit rate is technical validation, not clinical validation.",
             (
                 "The model must not control a cursor, dwell selection, AAC, "
@@ -275,6 +279,9 @@ def _calibration_records(
     report: dict[str, Any], feature_names: tuple[str, ...]
 ) -> list[tuple[int, TargetName, npt.NDArray[np.float64], tuple[float, float]]]:
     records: list[tuple[int, TargetName, npt.NDArray[np.float64], tuple[float, float]]] = []
+    report_config = report["protocol"]["configuration"]
+    min_face_width = report_config.get("min_face_width")
+    max_face_width = report_config.get("max_face_width")
     for item in report["observations"]:
         if (
             item["phase"] != "GAZE_DISCRIMINATION"
@@ -282,6 +289,11 @@ def _calibration_records(
             or item.get("block_index") is None
             or item.get("target") is None
             or not _report_observation_has_usable_eye(item)
+            or not _report_observation_has_valid_placement(
+                item,
+                min_face_width=min_face_width,
+                max_face_width=max_face_width,
+            )
         ):
             continue
         values = [_report_value(item, name) for name in feature_names]
@@ -322,6 +334,22 @@ def _report_observation_has_usable_eye(item: dict[str, Any]) -> bool:
         return False
     states = (item["left_eye_state"], item["right_eye_state"])
     return EyeState.OPEN.value in states
+
+
+def _report_observation_has_valid_placement(
+    item: dict[str, Any],
+    *,
+    min_face_width: object,
+    max_face_width: object,
+) -> bool:
+    if min_face_width is None or max_face_width is None:
+        return True
+    if not isinstance(min_face_width, int | float) or not isinstance(max_face_width, int | float):
+        return False
+    face_width = item["features"].get("face_width")
+    if not isinstance(face_width, int | float):
+        return False
+    return float(min_face_width) <= float(face_width) <= float(max_face_width)
 
 
 def _observation_value(observation: FeatureObservation, name: str) -> float | None:

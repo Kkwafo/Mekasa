@@ -40,6 +40,8 @@ def test_feature_extraction_uses_matching_anatomical_eye_and_iris_indices() -> N
 
     assert features["left_eye_aspect_ratio"] == pytest.approx(0.5)
     assert features["right_eye_aspect_ratio"] == pytest.approx(0.5)
+    assert features["left_eye_vertical_span"] == pytest.approx(0.1)
+    assert features["right_eye_vertical_span"] == pytest.approx(0.1)
     assert features["left_iris_x"] == pytest.approx(0.5)
     assert features["right_iris_x"] == pytest.approx(0.5)
     assert features["left_iris_y"] == pytest.approx(0.5)

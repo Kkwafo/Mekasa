@@ -10,7 +10,12 @@ import numpy as np
 import numpy.typing as npt
 
 from mekasa_gaze.domain import FeatureObservation, TrackingState
-from mekasa_gaze.geometry import euler_from_transform, eye_aspect_ratio, normalized_iris_position
+from mekasa_gaze.geometry import (
+    euclidean_2d,
+    euler_from_transform,
+    eye_aspect_ratio,
+    normalized_iris_position,
+)
 
 # MediaPipe Face Mesh topology. Names follow the person's anatomical side;
 # each six-point list runs from image-left corner to image-right corner so the
@@ -49,6 +54,8 @@ def features_from_landmarks(
     return {
         "left_eye_aspect_ratio": eye_aspect_ratio(left_eye),
         "right_eye_aspect_ratio": eye_aspect_ratio(right_eye),
+        "left_eye_vertical_span": euclidean_2d(landmarks[_LEFT_EYE[2]], landmarks[_LEFT_EYE[4]]),
+        "right_eye_vertical_span": euclidean_2d(landmarks[_RIGHT_EYE[2]], landmarks[_RIGHT_EYE[4]]),
         "left_iris_x": left_x,
         "left_iris_y": left_y,
         "right_iris_x": right_x,
@@ -110,8 +117,22 @@ class FaceFeatureExtractor:
         try:
             features = features_from_landmarks(landmarks)
             debug_points = tuple(
-                (landmarks[index][0], landmarks[index][1])
-                for index in (*_LEFT_EYE, *_RIGHT_EYE, *_LEFT_IRIS, *_RIGHT_IRIS)
+                (landmarks[index][0], landmarks[index][1]) for index in (*_LEFT_EYE, *_RIGHT_EYE)
+            )
+            debug_left_iris = tuple(
+                (landmarks[index][0], landmarks[index][1]) for index in _LEFT_IRIS
+            )
+            debug_right_iris = tuple(
+                (landmarks[index][0], landmarks[index][1]) for index in _RIGHT_IRIS
+            )
+            coordinates = np.asarray(landmarks, dtype=np.float64)
+            minimum = np.min(coordinates[:, :2], axis=0)
+            maximum = np.max(coordinates[:, :2], axis=0)
+            debug_face_box = (
+                float(minimum[0]),
+                float(minimum[1]),
+                float(maximum[0]),
+                float(maximum[1]),
             )
             pose = None
             evidence = "face_and_required_eye_landmarks"
@@ -124,6 +145,9 @@ class FaceFeatureExtractor:
         except (IndexError, ValueError, FloatingPointError) as error:
             features = {}
             debug_points = ()
+            debug_left_iris = ()
+            debug_right_iris = ()
+            debug_face_box = None
             pose = None
             evidence = f"invalid_landmark_geometry:{type(error).__name__}"
             state = TrackingState.UNCERTAIN
@@ -139,6 +163,9 @@ class FaceFeatureExtractor:
             evidence=evidence,
             feature_latency_ms=(perf_counter_ns() - started_ns) / 1_000_000,
             debug_eye_points=debug_points,
+            debug_left_iris_points=debug_left_iris,
+            debug_right_iris_points=debug_right_iris,
+            debug_face_box=debug_face_box,
         )
 
     def close(self) -> None:

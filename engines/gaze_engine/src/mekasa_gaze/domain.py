@@ -115,6 +115,7 @@ class GuidedObservation:
     gaze_validity: GazeValidity
     left_eye_state: EyeState
     right_eye_state: EyeState
+    validity_reason: str = ""
     features: Mapping[str, float] = field(default_factory=dict)
     head_pose: HeadPose | None = None
     capture_latency_ms: float = 0.0

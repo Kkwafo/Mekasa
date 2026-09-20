@@ -54,6 +54,8 @@ class GuidedValidationConfig:
     min_face_detection_confidence: float
     min_face_presence_confidence: float
     min_tracking_confidence: float
+    min_face_width: float
+    max_face_width: float
     eye_closed_ear_threshold: float
     min_eye_vertical_span: float
     max_abs_iris_coordinate: float
@@ -90,6 +92,7 @@ class GuidedValidationConfig:
             raw: dict[str, Any] = tomllib.load(handle)
         camera = raw["camera"]
         tracking = raw["tracking"]
+        placement = raw["placement"]
         validity = raw["eye_validity"]
         guided = raw["guided"]
         rendering = raw["rendering"]
@@ -112,6 +115,8 @@ class GuidedValidationConfig:
             min_face_detection_confidence=float(tracking["min_face_detection_confidence"]),
             min_face_presence_confidence=float(tracking["min_face_presence_confidence"]),
             min_tracking_confidence=float(tracking["min_tracking_confidence"]),
+            min_face_width=float(placement["min_face_width"]),
+            max_face_width=float(placement["max_face_width"]),
             eye_closed_ear_threshold=float(validity["closed_ear_threshold"]),
             min_eye_vertical_span=float(validity["min_vertical_span"]),
             max_abs_iris_coordinate=float(validity["max_abs_iris_coordinate"]),
@@ -148,6 +153,8 @@ class GuidedValidationConfig:
     def validate(self) -> None:
         if not 0.0 < self.debug_panel_fraction < 0.5:
             raise ValueError("debug_panel_fraction must be between 0 and 0.5")
+        if not 0.0 < self.min_face_width < self.max_face_width < 1.0:
+            raise ValueError("face-width placement bounds must satisfy 0 < min < max < 1")
         if self.min_samples_per_target < 1:
             raise ValueError("min_samples_per_target must be positive")
         if self.discrimination_blocks < 3:
@@ -222,3 +229,31 @@ class CalibrationConfig:
             raise ValueError("smoothing_alpha must be in (0, 1]")
         if not self.feature_names or len(set(self.feature_names)) != len(self.feature_names):
             raise ValueError("feature_names must be non-empty and unique")
+
+
+@dataclass(frozen=True, slots=True)
+class InteractionConfig:
+    dwell_seconds: float
+    cooldown_seconds: float
+    hysteresis_margin: float
+
+    @classmethod
+    def load(cls, path: Path) -> InteractionConfig:
+        with path.open("rb") as handle:
+            raw: dict[str, Any] = tomllib.load(handle)
+        selection = raw["selection"]
+        config = cls(
+            dwell_seconds=float(selection["dwell_seconds"]),
+            cooldown_seconds=float(selection["cooldown_seconds"]),
+            hysteresis_margin=float(selection["hysteresis_margin"]),
+        )
+        config.validate()
+        return config
+
+    def validate(self) -> None:
+        if self.dwell_seconds <= 0.0:
+            raise ValueError("dwell_seconds must be positive")
+        if self.cooldown_seconds < 0.0:
+            raise ValueError("cooldown_seconds must be non-negative")
+        if not 0.0 <= self.hysteresis_margin < 0.25:
+            raise ValueError("hysteresis_margin must be in [0, 0.25)")

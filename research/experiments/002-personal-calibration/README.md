@@ -65,6 +65,8 @@ C:\Projects\Mekasa\work\bootstrap\Scripts\uv.exe run --locked mekasa-live-evalua
 
 The window shows five reference positions, a smoothed predicted crosshair and the nearest target label. Invalid/closed-eye/tracking-invalid frames clear the prediction rather than carrying an old value forward. Press `Q` or `Esc` to stop.
 
+A loading screen is shown while the camera and landmark model initialize. Camera-relative face-size guidance remains visible: keep the placement in `DISTANCIA CORRECTA`; changing distance after calibration can shift predictions even though face size is one of the model inputs.
+
 The response is explicitly labelled experimental. It does not move the operating-system cursor, make a selection, speak an AAC message or trigger any external action.
 
 ## Interpretation
@@ -72,6 +74,8 @@ The response is explicitly labelled experimental. It does not move the operating
 Closest-target hit rate is meaningful only for the held-out block and setup that produced it. Random adjacent-frame splitting is deliberately not used. A strong result on one session may still fail after posture, camera, lighting, eyewear or fatigue changes.
 
 Before any interaction work, repeat the full collection/calibration process in separate sessions and compare target-level errors. Do not hide failed targets or excluded frames. No threshold in this experiment is clinically validated.
+
+The guided CLI keeps the conventional latest report and also archives each future run under `work/guided-validation/history/`, preventing another trial from silently replacing the only local copy.
 
 ## Privacy
 

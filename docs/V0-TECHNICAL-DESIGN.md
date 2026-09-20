@@ -137,7 +137,7 @@ Measured separately:
 - process CPU: process user+system CPU time divided by measured wall time, reported on a one-core basis and divided by logical CPU count for total-capacity context;
 - resident memory when available.
 
-The state machine waits for stable tracking, counts down, and then separates transition, acquisition and measurement windows for CENTER stability, three randomized five-direction discrimination blocks and CENTER head movement. A local installed Spanish voice announces short instructions before measurement so reading does not intentionally shift gaze. Reports include observations with derived features, block/target/sample state, hardware, OS, Python/package versions, camera backend and negotiated settings. A run with no accessible camera is a failed/blocked measurement, not zero FPS. Rendering and audio cue selection are tested with deterministic synthetic data; a real guided result still requires a person to follow the targets.
+The state machine waits for stable tracking and a camera-relative face width inside the configured placement band, counts down, and then separates transition, acquisition and measurement windows for CENTER stability, three randomized five-direction discrimination blocks and CENTER head movement. A local installed Spanish voice announces short instructions before measurement so reading does not intentionally shift gaze. Loading and placement feedback are shown before and during preparation. Reports include observations with derived features, block/target/sample state, hardware, OS, Python/package versions, camera backend and negotiated settings. A run with no accessible camera is a failed/blocked measurement, not zero FPS. Rendering and audio cue selection are tested with deterministic synthetic data; a real guided result still requires a person to follow the targets.
 
 ## 10. Testing strategy
 
@@ -187,7 +187,7 @@ If the target is missed, measure image size, model mode, frame dropping and visu
 
 1. Experiment 001: reproducible webcam -> landmarks -> valid features -> guided targets -> head pose -> visual debug, with honest per-target and performance metrics. Human guided execution remains required before interpreting results.
 2. Experiment 002: click-free personal calibration and held-out validation of baseline regressors.
-3. Experiment 003: four abstract target regions plus smoothing, dwell, hysteresis, cooldown and tracking-loss safety.
+3. Experiment 003: four abstract target regions plus smoothing, dwell, hysteresis, cooldown and tracking-loss safety. The baseline runner is implemented; controlled intended-versus-selected measurement remains required.
 4. Experiment 004: semantic intents YES/NO/WATER/HELP, localized presentation and offline TTS.
 5. Integrated V0: caregiver setup, eye-only communication path, diagnostics, tests, build and documented limitations.
 

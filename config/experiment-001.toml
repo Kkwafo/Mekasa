@@ -10,6 +10,12 @@ min_face_detection_confidence = 0.5
 min_face_presence_confidence = 0.5
 min_tracking_confidence = 0.5
 
+# Camera-relative engineering guidance. The protocol only starts while the
+# detected face width is inside this band. It is not a clinical threshold.
+[placement]
+min_face_width = 0.30
+max_face_width = 0.45
+
 [experiment]
 warmup_seconds = 3.0
 measure_seconds = 30.0

@@ -1,0 +1,6 @@
+[selection]
+# Engineering defaults only; they are not clinically validated timings.
+dwell_seconds = 1.20
+cooldown_seconds = 1.00
+hysteresis_margin = 0.06
+

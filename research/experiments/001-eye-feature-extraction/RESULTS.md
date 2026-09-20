@@ -130,3 +130,28 @@ Recalibration then used 651 samples from blocks 1–2 and held out all 338 sampl
 This calibration is sufficient to exercise the local live visualization, but not to claim reliable gaze control. The held-out DOWN failure and block-to-block displacement require another guided run after the partial-eye correction, followed by comparison with the same complete-block holdout. No clinical or AAC-use conclusion follows from these measurements.
 
 The exact report is preserved in `results/2026-09-20-windows-i5-8250u-audio-guided-blocked-01.json` with SHA-256 `1e01913e8003d99ad2cb5c0630212d325ad62a9752a49dec10b69a71d3152fd5`. It contains derived features only and no video, images, raw facial landmark arrays or participant name.
+
+## Measured run: 2026-09-20, audio-guided corrected validation 02
+
+Source commit: `53481addbdbb990a11817da895a63480dbe10d06` (clean). This is the latest report still present after the operator ran the workflow twice; the conventional output path had overwritten the preceding unpreserved trial. Future CLI runs now also receive a unique copy under the ignored `work/guided-validation/history/` directory.
+
+| Metric | Observed value |
+| --- | ---: |
+| Startup | 10.8864 s |
+| Frames | 2,957 |
+| Effective FPS | 22.2720 |
+| Tracking availability | 99.9662% |
+| Usable gaze availability | 97.5313% |
+| Fully valid / partial / rejected frames | 2,653 / 231 / 73 |
+| Possible-blink events | 16 |
+| Full iteration latency median | 43.1657 ms |
+| Process CPU, total-capacity basis | 26.4316% |
+| Resident memory maximum | 220.6641 MiB |
+
+Every block/target group had 60–70 usable samples, including DOWN. This verifies that the partial-eye correction removed the prior `DOWN: 0` calibration blocker. The resulting model trained on 691 samples and held out 329 samples from block 3. Held-out closest-target hit rate was 95.14%, but median error was 118.10 px, P90 error was 283.19 px, and 24.01% of raw predictions fell outside normalized screen bounds. Per-target closest-region results were 100% for CENTER, DOWN, LEFT and RIGHT and 75.38% for UP. Large median errors remained for DOWN (167.62 px) and RIGHT (152.87 px). Thus the coarse direction often remained correct while the coordinate was imprecise.
+
+Camera-relative face width drifted from a block-1 median of 0.3192 to 0.3007 in block 2 and 0.2909 in block 3; face height moved from 0.5508 to 0.5175 and 0.5053. Over the same blocks, fully valid discrimination frames declined from 348 to 306 and 259, while partial frames increased from 0 to 37 and 70. Head pose also shifted. This supports the operator's observation that moving closer improved capture and shows that consistency, not merely getting detected once, is important. It does not prove a universal viewing distance.
+
+The preparation UI now gates protocol start on an experimental detected-face-width band of 0.30–0.45 and displays `ACERCATE UN POCO`, `DISTANCIA CORRECTA` or `ALEJATE UN POCO`. This band is camera-relative engineering guidance derived to catch the observed drift, not a clinical or ergonomic recommendation.
+
+The exact latest report is preserved in `results/2026-09-20-windows-i5-8250u-audio-guided-corrected-02.json` with SHA-256 `8bfd186d99c13e5f57bb1a035f1cb651f8213ef861eebed027e6dd971373850f`. It contains derived features only and no video, images, raw facial landmarks or participant name.

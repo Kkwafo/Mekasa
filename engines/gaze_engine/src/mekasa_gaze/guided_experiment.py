@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 from collections import deque
+from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter, perf_counter_ns
 from typing import Any, cast
@@ -16,11 +17,12 @@ from mekasa_gaze.camera import CameraUnavailableError, OpenCVCameraProvider
 from mekasa_gaze.config import GuidedValidationConfig
 from mekasa_gaze.guided_report import GuidedReportBuilder, write_guided_report
 from mekasa_gaze.landmarker import FaceFeatureExtractor
+from mekasa_gaze.placement import assess_face_placement, placement_tracking_state
 from mekasa_gaze.protocol import GuidedProtocol
 from mekasa_gaze.runtime import environment, model_identity, source_revision
 from mekasa_gaze.speech import AudioInstructionController, create_speech_backend
 from mekasa_gaze.validity import assess_gaze_validity
-from mekasa_gaze.visualization import render_guided_screen
+from mekasa_gaze.visualization import render_guided_screen, render_loading_screen
 
 _WINDOW_NAME = "Mekasa Experiment 001 — Guided Visual Validation"
 
@@ -62,6 +64,16 @@ def run_guided_validation(
         cv2.setWindowProperty(_WINDOW_NAME, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
     else:
         cv2.resizeWindow(_WINDOW_NAME, config.canvas_width, config.canvas_height)
+    cv2.imshow(
+        _WINDOW_NAME,
+        render_loading_screen(
+            config.canvas_width,
+            config.canvas_height,
+            title="MEKASA",
+            status="Iniciando camara y modelo de mirada...",
+        ),
+    )
+    cv2.waitKey(1)
 
     try:
         with (
@@ -88,8 +100,16 @@ def run_guided_validation(
                     timestamp_ns=frame.captured_at_ns,
                 )
                 assessment = assess_gaze_validity(feature_observation, config)
+                placement = assess_face_placement(
+                    feature_observation,
+                    min_face_width=config.min_face_width,
+                    max_face_width=config.max_face_width,
+                )
                 now = perf_counter()
-                snapshot = protocol.update(now, feature_observation.tracking_state)
+                snapshot = protocol.update(
+                    now,
+                    placement_tracking_state(feature_observation, placement),
+                )
                 loop_latency_ms = (perf_counter_ns() - iteration_started_ns) / 1_000_000
                 audio_instructions.update(snapshot)
 
@@ -104,6 +124,7 @@ def run_guided_validation(
                     config,
                     rolling_fps,
                     audio_active=speech.active,
+                    placement=placement,
                 )
                 render_latency_ms = (perf_counter_ns() - render_started_ns) / 1_000_000
                 display_started_ns = perf_counter_ns()
@@ -194,6 +215,12 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         help="Override the fullscreen setting from the configuration file",
     )
+    parser.add_argument(
+        "--history-dir",
+        type=Path,
+        default=Path("work/guided-validation/history"),
+        help="Local ignored directory that preserves every completed CLI run",
+    )
     return parser
 
 
@@ -206,6 +233,9 @@ def main(argv: list[str] | None = None) -> int:
             report_path=args.report,
             fullscreen=args.fullscreen,
         )
+        timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
+        history_path = args.history_dir / f"guided-validation-{timestamp}.json"
+        write_guided_report(report, history_path)
     except (CameraUnavailableError, FileNotFoundError, RuntimeError, ValueError) as error:
         print(f"Guided validation could not run: {error}", file=sys.stderr)
         return 2
@@ -216,7 +246,12 @@ def main(argv: list[str] | None = None) -> int:
     protocol = report["protocol"]
     print(
         json.dumps(
-            {"report": str(args.report), "protocol": protocol, "measurement": measurement},
+            {
+                "report": str(args.report),
+                "history_report": str(history_path),
+                "protocol": protocol,
+                "measurement": measurement,
+            },
             indent=2,
             ensure_ascii=False,
         )

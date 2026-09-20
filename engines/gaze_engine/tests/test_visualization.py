@@ -17,7 +17,7 @@ from mekasa_gaze.domain import (
 )
 from mekasa_gaze.guided_experiment import _rolling_fps
 from mekasa_gaze.validity import assess_gaze_validity
-from mekasa_gaze.visualization import render_guided_screen
+from mekasa_gaze.visualization import render_guided_screen, render_loading_screen
 
 
 def _config() -> GuidedValidationConfig:
@@ -76,3 +76,10 @@ def test_guided_screen_renders_target_and_debug_without_mutating_camera_frame() 
 def test_rolling_fps_uses_elapsed_intervals() -> None:
     assert _rolling_fps(deque([0.0], maxlen=60)) is None
     assert _rolling_fps(deque([0.0, 0.5, 1.0], maxlen=60)) == 2.0
+
+
+def test_loading_screen_has_requested_size_and_visible_content() -> None:
+    output = render_loading_screen(1280, 720, title="MEKASA", status="Cargando...")
+
+    assert output.shape == (720, 1280, 3)
+    assert np.count_nonzero(output) > 0

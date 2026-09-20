@@ -18,8 +18,9 @@ from mekasa_gaze.config import CalibrationConfig, GuidedValidationConfig
 from mekasa_gaze.domain import GazeValidity
 from mekasa_gaze.guided_experiment import _rolling_fps
 from mekasa_gaze.landmarker import FaceFeatureExtractor
+from mekasa_gaze.placement import assess_face_placement
 from mekasa_gaze.validity import assess_gaze_validity
-from mekasa_gaze.visualization import render_live_evaluation_screen
+from mekasa_gaze.visualization import render_live_evaluation_screen, render_loading_screen
 
 _WINDOW_NAME = "Mekasa Experiment 002 — Live Calibration Evaluation"
 
@@ -71,6 +72,16 @@ def run_live_evaluation(
             guided_config.canvas_width,
             guided_config.canvas_height,
         )
+    cv2.imshow(
+        _WINDOW_NAME,
+        render_loading_screen(
+            guided_config.canvas_width,
+            guided_config.canvas_height,
+            title="MEKASA",
+            status="Cargando calibracion, camara y modelo...",
+        ),
+    )
+    cv2.waitKey(1)
 
     try:
         with (
@@ -94,6 +105,11 @@ def run_live_evaluation(
                     timestamp_ns=frame.captured_at_ns,
                 )
                 assessment = assess_gaze_validity(observation, guided_config)
+                placement = assess_face_placement(
+                    observation,
+                    min_face_width=guided_config.min_face_width,
+                    max_face_width=guided_config.max_face_width,
+                )
                 raw_prediction: tuple[float, float] | None = None
                 if assessment.gaze_validity in (GazeValidity.VALID, GazeValidity.PARTIAL):
                     try:
@@ -118,6 +134,7 @@ def run_live_evaluation(
                     nearest,
                     guided_config,
                     _rolling_fps(frame_times),
+                    placement,
                 )
                 cv2.imshow(_WINDOW_NAME, screen)
                 if cv2.waitKey(1) & 0xFF in (ord("q"), 27):

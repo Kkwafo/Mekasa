@@ -19,6 +19,8 @@ from mekasa_gaze.domain import (
     TargetName,
     TrackingState,
 )
+from mekasa_gaze.interaction import RegionName, SelectionUpdate, region_bounds
+from mekasa_gaze.placement import PlacementAssessment, PlacementState
 from mekasa_gaze.validity import ValidityAssessment
 
 _BACKGROUND = (24, 27, 31)
@@ -31,6 +33,34 @@ _WARN = (40, 180, 245)
 _BAD = (70, 80, 225)
 
 
+def render_loading_screen(
+    width: int,
+    height: int,
+    *,
+    title: str,
+    status: str,
+) -> npt.NDArray[np.uint8]:
+    canvas = np.full((height, width, 3), _BACKGROUND, dtype=np.uint8)
+    center_x = width // 2
+    center_y = height // 2
+    cv2.circle(canvas, (center_x, center_y - 70), 34, _PANEL, 8, cv2.LINE_AA)
+    cv2.ellipse(
+        canvas,
+        (center_x, center_y - 70),
+        (34, 34),
+        0,
+        -80,
+        45,
+        _ACCENT,
+        8,
+        cv2.LINE_AA,
+    )
+    _centered_text(canvas, title, center_y + 10, 0.9, _TEXT, 2)
+    _centered_text(canvas, status, center_y + 55, 0.6, _MUTED, 1)
+    _centered_text(canvas, "Procesamiento local — no se guarda video", height - 48, 0.48, _GOOD, 1)
+    return canvas
+
+
 def render_guided_screen(
     camera_bgr: npt.NDArray[np.uint8],
     feature_observation: FeatureObservation,
@@ -40,6 +70,7 @@ def render_guided_screen(
     rolling_fps: float | None,
     *,
     audio_active: bool = False,
+    placement: PlacementAssessment | None = None,
 ) -> npt.NDArray[np.uint8]:
     canvas = np.full(
         (config.canvas_height, config.canvas_width, 3),
@@ -57,7 +88,7 @@ def render_guided_screen(
     )
     cv2.line(canvas, (test_width, 0), (test_width, config.canvas_height), _MUTED, 1)
 
-    _draw_test_area(canvas, test_width, snapshot, config, audio_active)
+    _draw_test_area(canvas, test_width, snapshot, config, audio_active, placement)
     _draw_debug_panel(
         canvas,
         test_width,
@@ -68,6 +99,7 @@ def render_guided_screen(
         config,
         rolling_fps,
         audio_active,
+        placement,
     )
     return canvas
 
@@ -80,6 +112,7 @@ def render_live_evaluation_screen(
     nearest_target: TargetName | None,
     config: GuidedValidationConfig,
     rolling_fps: float | None,
+    placement: PlacementAssessment | None = None,
 ) -> npt.NDArray[np.uint8]:
     snapshot = ProtocolSnapshot(
         phase=ExperimentPhase.PREPARATION,
@@ -96,6 +129,7 @@ def render_live_evaluation_screen(
         snapshot,
         config,
         rolling_fps,
+        placement=placement,
     )
     debug_width = round(config.canvas_width * config.debug_panel_fraction)
     test_width = config.canvas_width - debug_width
@@ -147,12 +181,111 @@ def render_live_evaluation_screen(
     return canvas
 
 
+def render_region_selection_screen(
+    camera_bgr: npt.NDArray[np.uint8],
+    feature_observation: FeatureObservation,
+    assessment: ValidityAssessment,
+    prediction: tuple[float, float] | None,
+    selection: SelectionUpdate,
+    config: GuidedValidationConfig,
+    rolling_fps: float | None,
+    placement: PlacementAssessment,
+) -> npt.NDArray[np.uint8]:
+    snapshot = ProtocolSnapshot(
+        phase=ExperimentPhase.PREPARATION,
+        stage=MeasurementStage.WAITING_TRACKING,
+        target=None,
+        instruction="",
+        stage_remaining_seconds=None,
+        protocol_elapsed_seconds=0.0,
+    )
+    canvas = render_guided_screen(
+        camera_bgr,
+        feature_observation,
+        assessment,
+        snapshot,
+        config,
+        rolling_fps,
+        placement=placement,
+    )
+    debug_width = round(config.canvas_width * config.debug_panel_fraction)
+    test_width = config.canvas_width - debug_width
+    cv2.rectangle(canvas, (0, 0), (test_width - 1, config.canvas_height - 1), _BACKGROUND, -1)
+
+    labels = {
+        RegionName.TOP_LEFT: "REGION 1",
+        RegionName.TOP_RIGHT: "REGION 2",
+        RegionName.BOTTOM_LEFT: "REGION 3",
+        RegionName.BOTTOM_RIGHT: "REGION 4",
+    }
+    header_height = 72
+    footer_height = 64
+    region_height = config.canvas_height - header_height - footer_height
+    for region in RegionName:
+        left, top, right, bottom = region_bounds(region)
+        x1 = round(left * test_width)
+        x2 = round(right * test_width) - 1
+        y1 = header_height + round(top * region_height)
+        y2 = header_height + round(bottom * region_height) - 1
+        active = selection.candidate is region
+        selected = selection.selected is region
+        fill = (42, 57, 64) if active else _PANEL
+        if selected:
+            fill = (38, 78, 50)
+        border = _GOOD if selected else _ACCENT if active else _MUTED
+        cv2.rectangle(canvas, (x1 + 8, y1 + 8), (x2 - 8, y2 - 8), fill, -1)
+        cv2.rectangle(canvas, (x1 + 8, y1 + 8), (x2 - 8, y2 - 8), border, 3)
+        label = labels[region]
+        size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.82, 2)[0]
+        _text(
+            canvas,
+            label,
+            ((x1 + x2 - size[0]) // 2, (y1 + y2) // 2),
+            0.82,
+            border,
+            2,
+        )
+
+    _text(canvas, "EXPERIMENTO 003 — SELECCION POR PERMANENCIA", (24, 42), 0.68, _TEXT, 2)
+    if prediction is not None:
+        x = round(min(1.0, max(0.0, prediction[0])) * (test_width - 1))
+        y = header_height + round(min(1.0, max(0.0, prediction[1])) * max(1, region_height - 1))
+        cv2.circle(canvas, (x, y), 14, _ACCENT, 2, cv2.LINE_AA)
+
+    if not placement.ready:
+        status = placement.instruction
+        color = _WARN
+    elif not selection.tracking_available:
+        status = "SIN SELECCION — MIRADA NO DISPONIBLE"
+        color = _BAD
+    elif selection.cooldown_remaining_seconds > 0.0:
+        status = f"SELECCION REGISTRADA — pausa {selection.cooldown_remaining_seconds:.1f} s"
+        color = _GOOD
+    elif selection.candidate is not None:
+        status = f"MANTENE LA MIRADA — {selection.dwell_progress * 100:.0f}%"
+        color = _ACCENT
+    else:
+        status = "MIRA UNA REGION PARA INICIAR"
+        color = _TEXT
+    _text(canvas, status, (24, config.canvas_height - 26), 0.56, color, 2)
+    progress_width = round((test_width - 48) * selection.dwell_progress)
+    cv2.rectangle(
+        canvas,
+        (24, config.canvas_height - 15),
+        (24 + progress_width, config.canvas_height - 8),
+        _ACCENT,
+        -1,
+    )
+    return canvas
+
+
 def _draw_test_area(
     canvas: npt.NDArray[np.uint8],
     test_width: int,
     snapshot: ProtocolSnapshot,
     config: GuidedValidationConfig,
     audio_active: bool,
+    placement: PlacementAssessment | None,
 ) -> None:
     _text(canvas, "MEKASA — GUIDED VISUAL VALIDATION", (36, 46), 0.75, _MUTED, 2)
     _text(
@@ -168,6 +301,26 @@ def _draw_test_area(
         instruction_lines = textwrap.wrap(_ascii(snapshot.instruction), width=58) or [""]
         for index, line in enumerate(instruction_lines[:3]):
             _text(canvas, line, (36, 130 + index * 34), 0.72, _TEXT, 2)
+
+    if snapshot.phase is ExperimentPhase.PREPARATION and placement is not None:
+        color = _GOOD if placement.ready else _WARN
+        _centered_text(
+            canvas[:, :test_width],
+            placement.instruction,
+            config.canvas_height // 2,
+            1.05,
+            color,
+            3,
+        )
+        if placement.face_width is not None:
+            _centered_text(
+                canvas[:, :test_width],
+                f"Tamano detectado: {placement.face_width:.3f}",
+                config.canvas_height // 2 + 48,
+                0.55,
+                _MUTED,
+                1,
+            )
 
     if snapshot.target is not None:
         target_x = round(snapshot.target.normalized_x * (test_width - 1))
@@ -254,6 +407,7 @@ def _draw_debug_panel(
     config: GuidedValidationConfig,
     rolling_fps: float | None,
     audio_active: bool,
+    placement: PlacementAssessment | None,
 ) -> None:
     margin = 16
     panel_width = canvas.shape[1] - panel_x
@@ -280,8 +434,13 @@ def _draw_debug_panel(
     )
 
     y = preview_y + preview_height + 30
+    placement_value = placement.state.value if placement is not None else "—"
+    placement_color = (
+        _GOOD if placement is not None and placement.state is PlacementState.READY else _WARN
+    )
     rows = (
         ("Tracking", observation.tracking_state.value, _tracking_color(observation.tracking_state)),
+        ("Distancia", placement_value, placement_color),
         ("Gaze frame", assessment.gaze_validity.value, _validity_color(assessment.gaze_validity)),
         ("Ojo izquierdo", assessment.left_eye_state.value, _eye_color(assessment.left_eye_state)),
         ("Ojo derecho", assessment.right_eye_state.value, _eye_color(assessment.right_eye_state)),
@@ -368,6 +527,19 @@ def _validity_color(state: GazeValidity) -> tuple[int, int, int]:
 
 def _eye_color(state: EyeState) -> tuple[int, int, int]:
     return _GOOD if state is EyeState.OPEN else _WARN if state is EyeState.CLOSED else _BAD
+
+
+def _centered_text(
+    canvas: npt.NDArray[np.uint8],
+    text: str,
+    y: int,
+    scale: float,
+    color: tuple[int, int, int],
+    thickness: int,
+) -> None:
+    ascii_text = _ascii(text)
+    width = cv2.getTextSize(ascii_text, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)[0][0]
+    _text(canvas, ascii_text, ((canvas.shape[1] - width) // 2, y), scale, color, thickness)
 
 
 def _text(

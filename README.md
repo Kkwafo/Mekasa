@@ -8,9 +8,9 @@ Mekasa is an experimental assistive-technology research prototype. It is not a m
 
 ## Current status
 
-The repository has completed the implementation work needed to repeat **Experiment 001 — Guided Visual Validation** with local Spanish audio prompts, randomized blocks and corrected instrumentation. An **Experiment 002 personal-calibration baseline** can fit a local ridge model from that new report, evaluate a complete held-out block and show an experimental live response. It does not yet control the cursor, implement dwell selection or provide the four-item communication board.
+The repository includes **Experiment 001 — Guided Visual Validation** with local Spanish audio prompts, randomized blocks, placement guidance and corrected instrumentation. **Experiment 002** fits and holds out a complete block for a personal ridge-calibration baseline. **Experiment 003** now exposes four abstract regions with smoothing, dwell, hysteresis, cooldown and tracking-loss cancellation. It does not control the cursor or yet attach AAC meaning to those regions.
 
-Three prior hardware runs are preserved, including the first guided run. That run established continuous tracking and within-run target separation, but exposed startup-timing, blink-classification and fixed-order confounds. Those issues are corrected prospectively; a new audio-guided schema-3 run is required before calibration. See the [measured results](research/experiments/001-eye-feature-extraction/RESULTS.md).
+Five hardware runs are preserved, including two audio-guided schema-3 runs. The latest run removed the prior DOWN sample blocker and produced a usable experimental calibration, while also exposing distance/posture drift and coordinate imprecision. See the [measured results](research/experiments/001-eye-feature-extraction/RESULTS.md).
 
 ## Architecture
 
@@ -18,10 +18,11 @@ Three prior hardware runs are preserved, including the first guided run. That ru
 Camera
   -> Computer Vision
   -> Feature Extraction
-  -> Personal Calibration       (planned Experiment 002)
-  -> Gaze Model                 (planned Experiment 002)
+  -> Personal Calibration       (Experiment 002 baseline)
+  -> Gaze Model                 (Experiment 002 baseline)
   -> Gaze Coordinates
-  -> Interaction Engine         (planned Experiment 003)
+  -> Interaction Engine         (Experiment 003 baseline)
+  -> Four Abstract Regions      (Experiment 003 baseline)
   -> Communication Board
   -> Local Speech               (planned Experiment 004)
 ```
@@ -48,9 +49,10 @@ uv run mekasa-probe-cameras
 uv run mekasa-guided-validation
 uv run mekasa-calibrate
 uv run mekasa-live-evaluation
+uv run mekasa-region-evaluation
 ```
 
-The guided run is fullscreen by default, uses a local installed Spanish voice, can be cancelled with `Q` or `Esc`, and writes a local JSON report without saving video, frames, speech audio or raw facial landmarks. Calibration artifacts stay in the ignored `work/` directory. The `uv.lock` file must exist before `--locked` can succeed. See the [guided protocol](research/experiments/001-eye-feature-extraction/README.md), [calibration protocol](research/experiments/002-personal-calibration/README.md) and [technical design](docs/V0-TECHNICAL-DESIGN.md).
+The guided run is fullscreen by default, uses a local installed Spanish voice, can be cancelled with `Q` or `Esc`, and writes a local JSON report without saving video, frames, speech audio or raw facial landmarks. Calibration and interaction artifacts stay in the ignored `work/` directory. The `uv.lock` file must exist before `--locked` can succeed. See the [guided protocol](research/experiments/001-eye-feature-extraction/README.md), [calibration protocol](research/experiments/002-personal-calibration/README.md), [region-selection protocol](research/experiments/003-region-selection/README.md) and [technical design](docs/V0-TECHNICAL-DESIGN.md).
 
 ## Safety and limitations
 

@@ -85,6 +85,7 @@ class GuidedProtocol:
                 instruction="Ubicá tu rostro frente a la cámara.",
                 stage_remaining_seconds=None,
                 protocol_elapsed_seconds=0.0,
+                phase_remaining_seconds=None,
             )
 
         if self._stable_since is None:
@@ -100,6 +101,7 @@ class GuidedProtocol:
                     0.0, self._config.tracking_stable_seconds - stable_elapsed
                 ),
                 protocol_elapsed_seconds=0.0,
+                phase_remaining_seconds=None,
             )
 
         if self._countdown_since is None:
@@ -115,6 +117,9 @@ class GuidedProtocol:
                     0.0, self._config.countdown_seconds - countdown_elapsed
                 ),
                 protocol_elapsed_seconds=0.0,
+                phase_remaining_seconds=max(
+                    0.0, self._config.countdown_seconds - countdown_elapsed
+                ),
             )
 
         self._protocol_started_at = now_seconds
@@ -144,6 +149,7 @@ class GuidedProtocol:
             instruction="Prueba finalizada. Podés descansar.",
             stage_remaining_seconds=None,
             protocol_elapsed_seconds=now_seconds - self._protocol_started_at,
+            phase_remaining_seconds=None,
             completed=True,
         )
 
@@ -170,6 +176,7 @@ class GuidedProtocol:
             instruction = self._measurement_instruction(segment.phase)
 
         assert self._protocol_started_at is not None
+        phase_remaining = self._phase_remaining_seconds(segment, elapsed)
         return ProtocolSnapshot(
             phase=segment.phase,
             stage=stage,
@@ -177,7 +184,25 @@ class GuidedProtocol:
             instruction=instruction,
             stage_remaining_seconds=max(0.0, remaining),
             protocol_elapsed_seconds=now_seconds - self._protocol_started_at,
+            phase_remaining_seconds=phase_remaining,
         )
+
+    def _phase_remaining_seconds(self, current_segment: ProtocolSegment, elapsed: float) -> float:
+        current_total = (
+            self._config.transition_seconds
+            + self._config.acquisition_seconds
+            + current_segment.measurement_seconds
+        )
+        remaining = max(0.0, current_total - elapsed)
+        for segment in self._segments[self._segment_index + 1 :]:
+            if segment.phase is not current_segment.phase:
+                break
+            remaining += (
+                self._config.transition_seconds
+                + self._config.acquisition_seconds
+                + segment.measurement_seconds
+            )
+        return remaining
 
     @staticmethod
     def _measurement_instruction(phase: ExperimentPhase) -> str:

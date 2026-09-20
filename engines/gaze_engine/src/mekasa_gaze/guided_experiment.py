@@ -1,0 +1,195 @@
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from collections import deque
+from pathlib import Path
+from time import perf_counter, perf_counter_ns
+from typing import Any, cast
+
+import cv2
+import numpy as np
+import numpy.typing as npt
+
+from mekasa_gaze.camera import CameraUnavailableError, OpenCVCameraProvider
+from mekasa_gaze.config import GuidedValidationConfig
+from mekasa_gaze.guided_report import GuidedReportBuilder, write_guided_report
+from mekasa_gaze.landmarker import FaceFeatureExtractor
+from mekasa_gaze.protocol import GuidedProtocol
+from mekasa_gaze.runtime import environment, model_identity, source_revision
+from mekasa_gaze.validity import assess_gaze_validity
+from mekasa_gaze.visualization import render_guided_screen
+
+_WINDOW_NAME = "Mekasa Experiment 001 — Guided Visual Validation"
+
+
+def run_guided_validation(
+    *,
+    config: GuidedValidationConfig,
+    model_path: Path,
+    report_path: Path,
+    fullscreen: bool | None = None,
+) -> dict[str, Any]:
+    use_fullscreen = config.fullscreen if fullscreen is None else fullscreen
+    camera = OpenCVCameraProvider(
+        index=config.camera_index,
+        backend=config.backend,
+        width=config.width,
+        height=config.height,
+        target_fps=config.target_fps,
+    )
+    protocol = GuidedProtocol(config)
+    builder = GuidedReportBuilder()
+    frame_times: deque[float] = deque(maxlen=60)
+    completed = False
+    aborted = False
+    completion_started: float | None = None
+
+    cv2.namedWindow(_WINDOW_NAME, cv2.WINDOW_NORMAL)
+    if use_fullscreen:
+        cv2.setWindowProperty(_WINDOW_NAME, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+    else:
+        cv2.resizeWindow(_WINDOW_NAME, config.canvas_width, config.canvas_height)
+
+    try:
+        with (
+            camera,
+            FaceFeatureExtractor(
+                model_path,
+                min_face_detection_confidence=config.min_face_detection_confidence,
+                min_face_presence_confidence=config.min_face_presence_confidence,
+                min_tracking_confidence=config.min_tracking_confidence,
+            ) as extractor,
+        ):
+            while True:
+                loop_started_ns = perf_counter_ns()
+                frame = camera.read()
+                rgb = cast(
+                    npt.NDArray[np.uint8],
+                    cv2.cvtColor(frame.bgr, cv2.COLOR_BGR2RGB),
+                )
+                feature_observation = extractor.extract(
+                    rgb,
+                    sequence=frame.sequence,
+                    timestamp_ns=frame.captured_at_ns,
+                )
+                assessment = assess_gaze_validity(feature_observation, config)
+                now = perf_counter()
+                snapshot = protocol.update(now, feature_observation.tracking_state)
+                loop_latency_ms = (perf_counter_ns() - loop_started_ns) / 1_000_000
+                builder.add(
+                    frame,
+                    feature_observation,
+                    snapshot,
+                    assessment,
+                    loop_latency_ms,
+                )
+
+                frame_times.append(now)
+                rolling_fps = _rolling_fps(frame_times)
+                screen = render_guided_screen(
+                    frame.bgr,
+                    feature_observation,
+                    assessment,
+                    snapshot,
+                    config,
+                    rolling_fps,
+                )
+                cv2.imshow(_WINDOW_NAME, screen)
+                key = cv2.waitKey(1) & 0xFF
+                if key in (ord("q"), 27):
+                    aborted = True
+                    break
+
+                if snapshot.completed:
+                    completed = True
+                    if completion_started is None:
+                        completion_started = now
+                    elif now - completion_started >= config.completion_display_seconds:
+                        break
+    finally:
+        cv2.destroyWindow(_WINDOW_NAME)
+
+    experiment = {
+        "name": "Experiment 001 — Guided Visual Validation",
+        "kind": "GUIDED_VISUAL_VALIDATION",
+        "model": model_identity(model_path),
+        "source": source_revision(),
+        "display": {
+            "fullscreen": use_fullscreen,
+            "canvas_width": config.canvas_width,
+            "canvas_height": config.canvas_height,
+        },
+    }
+    report = builder.build(
+        camera=camera.actual_settings,
+        environment=environment(),
+        config=config,
+        experiment=experiment,
+        completed=completed,
+        aborted=aborted,
+    )
+    write_guided_report(report, report_path)
+    return report
+
+
+def _rolling_fps(frame_times: deque[float]) -> float | None:
+    if len(frame_times) < 2:
+        return None
+    duration = frame_times[-1] - frame_times[0]
+    return (len(frame_times) - 1) / duration if duration > 0.0 else None
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Run Experiment 001 guided visual validation locally"
+    )
+    parser.add_argument("--config", type=Path, default=Path("config/experiment-001.toml"))
+    parser.add_argument(
+        "--model",
+        type=Path,
+        default=Path("models/gaze/mediapipe-face-landmarker/face_landmarker.task"),
+    )
+    parser.add_argument(
+        "--report",
+        type=Path,
+        default=Path(
+            "research/experiments/001-eye-feature-extraction/results/guided-validation-result.json"
+        ),
+    )
+    parser.add_argument(
+        "--fullscreen",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Override the fullscreen setting from the configuration file",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    try:
+        report = run_guided_validation(
+            config=GuidedValidationConfig.load(args.config),
+            model_path=args.model,
+            report_path=args.report,
+            fullscreen=args.fullscreen,
+        )
+    except (CameraUnavailableError, FileNotFoundError, RuntimeError, ValueError) as error:
+        print(f"Guided validation could not run: {error}", file=sys.stderr)
+        return 2
+    measurement = report["measurement"]
+    protocol = report["protocol"]
+    print(
+        json.dumps(
+            {"report": str(args.report), "protocol": protocol, "measurement": measurement},
+            indent=2,
+            ensure_ascii=False,
+        )
+    )
+    return 0 if bool(protocol["completed"]) else 3
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,78 @@
+from __future__ import annotations
+
+from collections import deque
+from pathlib import Path
+
+import numpy as np
+
+from mekasa_gaze.config import GuidedValidationConfig
+from mekasa_gaze.domain import (
+    ExperimentPhase,
+    FeatureObservation,
+    HeadPose,
+    MeasurementStage,
+    ProtocolSnapshot,
+    TargetName,
+    TrackingState,
+)
+from mekasa_gaze.guided_experiment import _rolling_fps
+from mekasa_gaze.validity import assess_gaze_validity
+from mekasa_gaze.visualization import render_guided_screen
+
+
+def _config() -> GuidedValidationConfig:
+    return GuidedValidationConfig.load(Path("config/experiment-001.toml"))
+
+
+def test_guided_screen_renders_target_and_debug_without_mutating_camera_frame() -> None:
+    config = _config()
+    camera_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    observation = FeatureObservation(
+        frame_sequence=1,
+        timestamp_ns=1,
+        tracking_state=TrackingState.GOOD,
+        features={
+            "left_eye_aspect_ratio": 0.3,
+            "right_eye_aspect_ratio": 0.31,
+            "left_eye_vertical_span": 0.03,
+            "right_eye_vertical_span": 0.031,
+            "left_iris_x": 0.5,
+            "left_iris_y": 0.5,
+            "right_iris_x": 0.49,
+            "right_iris_y": 0.51,
+        },
+        head_pose=HeadPose(yaw_degrees=1.0, pitch_degrees=-2.0, roll_degrees=0.5),
+        debug_eye_points=((0.4, 0.4), (0.6, 0.4)),
+        debug_left_iris_points=((0.44, 0.4),),
+        debug_right_iris_points=((0.56, 0.4),),
+        debug_face_box=(0.25, 0.15, 0.75, 0.85),
+    )
+    snapshot = ProtocolSnapshot(
+        phase=ExperimentPhase.GAZE_DISCRIMINATION,
+        stage=MeasurementStage.MEASUREMENT,
+        target=config.target(TargetName.CENTER),
+        instruction="Mirá el punto central sin mover la cabeza.",
+        stage_remaining_seconds=2.5,
+        protocol_elapsed_seconds=10.0,
+    )
+
+    output = render_guided_screen(
+        camera_frame,
+        observation,
+        assess_gaze_validity(observation, config),
+        snapshot,
+        config,
+        rolling_fps=29.8,
+    )
+
+    assert output.shape == (config.canvas_height, config.canvas_width, 3)
+    assert np.count_nonzero(output) > 0
+    assert np.count_nonzero(camera_frame) == 0
+    debug_start = config.canvas_width - round(config.canvas_width * config.debug_panel_fraction)
+    assert np.count_nonzero(output[:, :debug_start]) > 0
+    assert np.count_nonzero(output[:, debug_start:]) > 0
+
+
+def test_rolling_fps_uses_elapsed_intervals() -> None:
+    assert _rolling_fps(deque([0.0], maxlen=60)) is None
+    assert _rolling_fps(deque([0.0, 0.5, 1.0], maxlen=60)) == 2.0

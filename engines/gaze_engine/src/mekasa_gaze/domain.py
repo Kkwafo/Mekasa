@@ -81,6 +81,7 @@ class ProtocolSnapshot:
     instruction: str
     stage_remaining_seconds: float | None
     protocol_elapsed_seconds: float
+    phase_remaining_seconds: float | None = None
     completed: bool = False
 
 

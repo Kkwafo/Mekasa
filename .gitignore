@@ -10,6 +10,7 @@ build/
 dist/
 work/
 research/experiments/001-eye-feature-extraction/results/latest.json
+research/experiments/001-eye-feature-extraction/results/guided-validation-result.json
 models/**/*.task
 models/**/*.onnx
 !models/**/metadata.json

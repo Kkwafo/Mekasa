@@ -73,3 +73,20 @@ def test_protocol_contains_required_discrimination_targets() -> None:
         if segment.phase is ExperimentPhase.GAZE_DISCRIMINATION
     }
     assert targets == set(TargetName)
+
+
+def test_phase_remaining_covers_all_discrimination_targets() -> None:
+    protocol = _protocol()
+    protocol.update(0.0, TrackingState.GOOD)
+    protocol.update(1.5, TrackingState.GOOD)
+    protocol_start = 4.5
+    protocol.update(protocol_start, TrackingState.GOOD)
+    center_segment_seconds = 0.75 + 1.0 + 5.0
+
+    discrimination = protocol.update(
+        protocol_start + center_segment_seconds,
+        TrackingState.GOOD,
+    )
+
+    assert discrimination.phase is ExperimentPhase.GAZE_DISCRIMINATION
+    assert discrimination.phase_remaining_seconds == pytest.approx(5 * (0.75 + 1.0 + 3.0))

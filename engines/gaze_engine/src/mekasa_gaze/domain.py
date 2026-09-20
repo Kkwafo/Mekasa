@@ -82,6 +82,8 @@ class ProtocolSnapshot:
     stage_remaining_seconds: float | None
     protocol_elapsed_seconds: float
     phase_remaining_seconds: float | None = None
+    block_index: int | None = None
+    segment_index: int | None = None
     completed: bool = False
 
 
@@ -116,12 +118,17 @@ class GuidedObservation:
     gaze_validity: GazeValidity
     left_eye_state: EyeState
     right_eye_state: EyeState
+    block_index: int | None = None
+    segment_index: int | None = None
     validity_reason: str = ""
     features: Mapping[str, float] = field(default_factory=dict)
     head_pose: HeadPose | None = None
     capture_latency_ms: float = 0.0
     feature_latency_ms: float = 0.0
     loop_latency_ms: float = 0.0
+    render_latency_ms: float = 0.0
+    display_latency_ms: float = 0.0
+    iteration_latency_ms: float = 0.0
 
     @property
     def is_valid_measurement(self) -> bool:

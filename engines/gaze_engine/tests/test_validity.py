@@ -79,6 +79,20 @@ def test_degenerate_vertical_span_is_invalid() -> None:
     assert assessment.gaze_validity is GazeValidity.INVALID
 
 
+def test_low_ear_takes_precedence_over_small_vertical_span_for_blink_analysis() -> None:
+    assessment = assess_gaze_validity(
+        _feature_observation(
+            changes={
+                "right_eye_aspect_ratio": 0.05,
+                "right_eye_vertical_span": 0.001,
+            }
+        ),
+        _config(),
+    )
+    assert assessment.gaze_validity is GazeValidity.EYE_CLOSED
+    assert assessment.right_eye_state.name == "CLOSED"
+
+
 def test_extreme_iris_coordinate_is_invalid() -> None:
     assessment = assess_gaze_validity(
         _feature_observation(changes={"left_iris_y": 50.0}), _config()

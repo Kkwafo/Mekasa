@@ -62,19 +62,19 @@ def assess_gaze_validity(
         features["right_eye_vertical_span"],
         config,
     )
-    if EyeState.INVALID in (left_state, right_state):
-        return ValidityAssessment(
-            GazeValidity.INVALID,
-            left_state,
-            right_state,
-            "degenerate_eye_geometry",
-        )
     if EyeState.CLOSED in (left_state, right_state):
         return ValidityAssessment(
             GazeValidity.EYE_CLOSED,
             left_state,
             right_state,
             "eye_aspect_ratio_below_experimental_threshold",
+        )
+    if EyeState.INVALID in (left_state, right_state):
+        return ValidityAssessment(
+            GazeValidity.INVALID,
+            left_state,
+            right_state,
+            "degenerate_eye_geometry",
         )
 
     iris_values = (features[name] for name in _REQUIRED_FEATURES if "iris_" in name)
@@ -98,10 +98,10 @@ def _eye_state(
     vertical_span: float,
     config: GuidedValidationConfig,
 ) -> EyeState:
-    if vertical_span < config.min_eye_vertical_span:
-        return EyeState.INVALID
     if aspect_ratio < config.eye_closed_ear_threshold:
         return EyeState.CLOSED
+    if vertical_span < config.min_eye_vertical_span:
+        return EyeState.INVALID
     return EyeState.OPEN
 
 

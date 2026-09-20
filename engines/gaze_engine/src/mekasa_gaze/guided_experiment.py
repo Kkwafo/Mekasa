@@ -18,6 +18,7 @@ from mekasa_gaze.guided_report import GuidedReportBuilder, write_guided_report
 from mekasa_gaze.landmarker import FaceFeatureExtractor
 from mekasa_gaze.protocol import GuidedProtocol
 from mekasa_gaze.runtime import environment, model_identity, source_revision
+from mekasa_gaze.speech import AudioInstructionController, create_speech_backend
 from mekasa_gaze.validity import assess_gaze_validity
 from mekasa_gaze.visualization import render_guided_screen
 
@@ -31,6 +32,7 @@ def run_guided_validation(
     report_path: Path,
     fullscreen: bool | None = None,
 ) -> dict[str, Any]:
+    startup_started = perf_counter()
     use_fullscreen = config.fullscreen if fullscreen is None else fullscreen
     camera = OpenCVCameraProvider(
         index=config.camera_index,
@@ -41,10 +43,19 @@ def run_guided_validation(
     )
     protocol = GuidedProtocol(config)
     builder = GuidedReportBuilder()
+    speech = create_speech_backend(
+        enabled=config.audio_enabled,
+        required=config.audio_required,
+        language=config.audio_language,
+        rate=config.audio_rate,
+        volume=config.audio_volume,
+    )
+    audio_instructions = AudioInstructionController(speech)
     frame_times: deque[float] = deque(maxlen=60)
     completed = False
     aborted = False
     completion_started: float | None = None
+    startup_seconds = 0.0
 
     cv2.namedWindow(_WINDOW_NAME, cv2.WINDOW_NORMAL)
     if use_fullscreen:
@@ -62,8 +73,10 @@ def run_guided_validation(
                 min_tracking_confidence=config.min_tracking_confidence,
             ) as extractor,
         ):
+            startup_seconds = perf_counter() - startup_started
+            builder.start_measurement()
             while True:
-                loop_started_ns = perf_counter_ns()
+                iteration_started_ns = perf_counter_ns()
                 frame = camera.read()
                 rgb = cast(
                     npt.NDArray[np.uint8],
@@ -77,17 +90,12 @@ def run_guided_validation(
                 assessment = assess_gaze_validity(feature_observation, config)
                 now = perf_counter()
                 snapshot = protocol.update(now, feature_observation.tracking_state)
-                loop_latency_ms = (perf_counter_ns() - loop_started_ns) / 1_000_000
-                builder.add(
-                    frame,
-                    feature_observation,
-                    snapshot,
-                    assessment,
-                    loop_latency_ms,
-                )
+                loop_latency_ms = (perf_counter_ns() - iteration_started_ns) / 1_000_000
+                audio_instructions.update(snapshot)
 
                 frame_times.append(now)
                 rolling_fps = _rolling_fps(frame_times)
+                render_started_ns = perf_counter_ns()
                 screen = render_guided_screen(
                     frame.bgr,
                     feature_observation,
@@ -95,9 +103,24 @@ def run_guided_validation(
                     snapshot,
                     config,
                     rolling_fps,
+                    audio_active=speech.active,
                 )
+                render_latency_ms = (perf_counter_ns() - render_started_ns) / 1_000_000
+                display_started_ns = perf_counter_ns()
                 cv2.imshow(_WINDOW_NAME, screen)
                 key = cv2.waitKey(1) & 0xFF
+                display_latency_ms = (perf_counter_ns() - display_started_ns) / 1_000_000
+                iteration_latency_ms = (perf_counter_ns() - iteration_started_ns) / 1_000_000
+                builder.add(
+                    frame,
+                    feature_observation,
+                    snapshot,
+                    assessment,
+                    loop_latency_ms,
+                    render_latency_ms=render_latency_ms,
+                    display_latency_ms=display_latency_ms,
+                    iteration_latency_ms=iteration_latency_ms,
+                )
                 if key in (ord("q"), 27):
                     aborted = True
                     break
@@ -109,6 +132,7 @@ def run_guided_validation(
                     elif now - completion_started >= config.completion_display_seconds:
                         break
     finally:
+        speech.close()
         cv2.destroyWindow(_WINDOW_NAME)
 
     experiment = {
@@ -116,6 +140,12 @@ def run_guided_validation(
         "kind": "GUIDED_VISUAL_VALIDATION",
         "model": model_identity(model_path),
         "source": source_revision(),
+        "startup_seconds": startup_seconds,
+        "audio": speech.metadata,
+        "target_order_seed": config.target_order_seed,
+        "target_orders": [
+            [target.value for target in block] for block in protocol.planned_target_orders
+        ],
         "display": {
             "fullscreen": use_fullscreen,
             "canvas_width": config.canvas_width,

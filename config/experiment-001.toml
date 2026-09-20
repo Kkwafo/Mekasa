@@ -26,13 +26,15 @@ max_blink_seconds = 0.45
 [guided]
 tracking_stable_seconds = 1.5
 countdown_seconds = 3.0
-transition_seconds = 0.75
-acquisition_seconds = 1.0
+transition_seconds = 1.0
+acquisition_seconds = 1.5
 measurement_seconds = 3.0
 center_stability_seconds = 5.0
 head_movement_seconds = 5.0
 completion_display_seconds = 3.0
 min_samples_per_target = 20
+discrimination_blocks = 3
+target_order_seed = 1001
 
 [rendering]
 canvas_width = 1280
@@ -42,6 +44,14 @@ target_radius_pixels = 30
 fullscreen = true
 show_face_box = true
 show_landmarks = true
+
+[audio]
+enabled = true
+required = true
+language = "es-ES"
+rate = 0
+volume = 100
+hide_visual_instructions_when_active = true
 
 [targets.CENTER]
 x = 0.50

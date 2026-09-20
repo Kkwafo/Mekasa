@@ -31,6 +31,9 @@ class ExperimentMetrics:
     _capture_latencies: list[float]
     _feature_latencies: list[float]
     _loop_latencies: list[float]
+    _render_latencies: list[float]
+    _display_latencies: list[float]
+    _iteration_latencies: list[float]
     _features: dict[str, list[float]]
     _states: Counter[TrackingState]
     _rss_samples_mb: list[float]
@@ -39,6 +42,8 @@ class ExperimentMetrics:
     _current_loss_frames: int
     _longest_loss_frames: int
     _frames: int
+    _first_frame_timestamp_ns: int | None
+    _last_frame_timestamp_ns: int | None
     _process: psutil.Process
     _process_cpu_seconds_started: float
 
@@ -51,6 +56,9 @@ class ExperimentMetrics:
             _capture_latencies=[],
             _feature_latencies=[],
             _loop_latencies=[],
+            _render_latencies=[],
+            _display_latencies=[],
+            _iteration_latencies=[],
             _features={},
             _states=Counter(),
             _rss_samples_mb=[],
@@ -59,6 +67,8 @@ class ExperimentMetrics:
             _current_loss_frames=0,
             _longest_loss_frames=0,
             _frames=0,
+            _first_frame_timestamp_ns=None,
+            _last_frame_timestamp_ns=None,
             _process=process,
             _process_cpu_seconds_started=cpu_times.user + cpu_times.system,
         )
@@ -68,11 +78,24 @@ class ExperimentMetrics:
         frame: CameraFrame,
         observation: FeatureObservation,
         loop_latency_ms: float,
+        *,
+        render_latency_ms: float | None = None,
+        display_latency_ms: float | None = None,
+        iteration_latency_ms: float | None = None,
     ) -> None:
         self._frames += 1
+        if self._first_frame_timestamp_ns is None:
+            self._first_frame_timestamp_ns = frame.captured_at_ns
+        self._last_frame_timestamp_ns = frame.captured_at_ns
         self._capture_latencies.append(frame.capture_latency_ms)
         self._feature_latencies.append(observation.feature_latency_ms)
         self._loop_latencies.append(loop_latency_ms)
+        if render_latency_ms is not None:
+            self._render_latencies.append(render_latency_ms)
+        if display_latency_ms is not None:
+            self._display_latencies.append(display_latency_ms)
+        if iteration_latency_ms is not None:
+            self._iteration_latencies.append(iteration_latency_ms)
         self._states[observation.tracking_state] += 1
 
         available = observation.tracking_available
@@ -106,6 +129,13 @@ class ExperimentMetrics:
         process_cpu_seconds = cpu_times.user + cpu_times.system - self._process_cpu_seconds_started
         logical_cpu_count = psutil.cpu_count(logical=True) or 1
         one_core_cpu_percent = 100.0 * process_cpu_seconds / duration_s if duration_s else None
+        stream_duration_s = (
+            (self._last_frame_timestamp_ns - self._first_frame_timestamp_ns) / 1_000_000_000
+            if self._frames > 1
+            and self._first_frame_timestamp_ns is not None
+            and self._last_frame_timestamp_ns is not None
+            else None
+        )
         self._longest_loss_frames = max(self._longest_loss_frames, self._current_loss_frames)
         good = self._states[TrackingState.GOOD]
         stability = {
@@ -123,8 +153,13 @@ class ExperimentMetrics:
             "schema_version": 1,
             "measurement": {
                 "duration_seconds": duration_s,
+                "stream_duration_seconds": stream_duration_s,
                 "frames_attempted": self._frames,
-                "effective_fps": self._frames / duration_s if duration_s else None,
+                "effective_fps": (
+                    (self._frames - 1) / stream_duration_s
+                    if stream_duration_s is not None and stream_duration_s > 0.0
+                    else None
+                ),
                 "tracking_availability": good / self._frames if self._frames else None,
                 "tracking_loss_events": self._loss_events,
                 "longest_non_good_run_frames": self._longest_loss_frames,
@@ -134,6 +169,9 @@ class ExperimentMetrics:
                 "capture_latency_ms": _summary(self._capture_latencies),
                 "feature_latency_ms": _summary(self._feature_latencies),
                 "loop_latency_ms": _summary(self._loop_latencies),
+                "render_latency_ms": _summary(self._render_latencies),
+                "display_latency_ms": _summary(self._display_latencies),
+                "iteration_latency_ms": _summary(self._iteration_latencies),
                 "process_cpu": {
                     "process_cpu_seconds": process_cpu_seconds,
                     "utilization_percent_one_core_basis": one_core_cpu_percent,

@@ -8,7 +8,12 @@ from mekasa_gaze.metrics import ExperimentMetrics
 def _frame(sequence: int) -> CameraFrame:
     import numpy as np
 
-    return CameraFrame(sequence, sequence, 2.0, np.zeros((2, 2, 3), dtype=np.uint8))
+    return CameraFrame(
+        sequence,
+        sequence * 100_000_000,
+        2.0,
+        np.zeros((2, 2, 3), dtype=np.uint8),
+    )
 
 
 def _observation(sequence: int, state: TrackingState) -> FeatureObservation:
@@ -41,3 +46,21 @@ def test_tracking_loss_transitions_are_counted_once_per_run() -> None:
     assert measurement["tracking_state_counts"]["TRACKING_LOST"] == 2
     assert measurement["process_cpu"]["logical_cpu_count"] >= 1
     assert measurement["process_cpu"]["process_cpu_seconds"] >= 0.0
+    assert measurement["stream_duration_seconds"] == 0.4
+    assert measurement["effective_fps"] == 10.0
+
+
+def test_optional_render_and_iteration_latencies_are_reported() -> None:
+    metrics = ExperimentMetrics.start()
+    metrics.add(
+        _frame(0),
+        _observation(0, TrackingState.GOOD),
+        6.0,
+        render_latency_ms=2.0,
+        display_latency_ms=3.0,
+        iteration_latency_ms=11.0,
+    )
+    measurement = metrics.report(CameraSettings(0, "test", 2, 2, 30.0), {})["measurement"]
+    assert measurement["render_latency_ms"]["median"] == 2.0
+    assert measurement["display_latency_ms"]["median"] == 3.0
+    assert measurement["iteration_latency_ms"]["median"] == 11.0

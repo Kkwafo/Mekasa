@@ -14,6 +14,7 @@ from mekasa_gaze.camera import CameraFrame, CameraSettings
 from mekasa_gaze.config import GuidedValidationConfig
 from mekasa_gaze.domain import (
     ExperimentPhase,
+    EyeState,
     FeatureObservation,
     GazeValidity,
     GuidedObservation,
@@ -53,9 +54,13 @@ _ANALYZED_FEATURES = (
 
 class GuidedReportBuilder:
     def __init__(self) -> None:
-        self._performance = ExperimentMetrics.start()
+        self._performance: ExperimentMetrics | None = None
         self._observations: list[GuidedObservation] = []
         self._first_timestamp_ns: int | None = None
+
+    def start_measurement(self) -> None:
+        if self._performance is None:
+            self._performance = ExperimentMetrics.start()
 
     def add(
         self,
@@ -64,10 +69,23 @@ class GuidedReportBuilder:
         snapshot: ProtocolSnapshot,
         assessment: ValidityAssessment,
         loop_latency_ms: float,
+        *,
+        render_latency_ms: float = 0.0,
+        display_latency_ms: float = 0.0,
+        iteration_latency_ms: float = 0.0,
     ) -> None:
+        self.start_measurement()
+        assert self._performance is not None
         if self._first_timestamp_ns is None:
             self._first_timestamp_ns = feature_observation.timestamp_ns
-        self._performance.add(frame, feature_observation, loop_latency_ms)
+        self._performance.add(
+            frame,
+            feature_observation,
+            loop_latency_ms,
+            render_latency_ms=render_latency_ms,
+            display_latency_ms=display_latency_ms,
+            iteration_latency_ms=iteration_latency_ms,
+        )
         persisted_features = {
             name: float(feature_observation.features[name])
             for name in _PERSISTED_FEATURES
@@ -86,12 +104,17 @@ class GuidedReportBuilder:
                 gaze_validity=assessment.gaze_validity,
                 left_eye_state=assessment.left_eye_state,
                 right_eye_state=assessment.right_eye_state,
+                block_index=snapshot.block_index,
+                segment_index=snapshot.segment_index,
                 validity_reason=assessment.reason,
                 features=persisted_features,
                 head_pose=feature_observation.head_pose,
                 capture_latency_ms=frame.capture_latency_ms,
                 feature_latency_ms=feature_observation.feature_latency_ms,
                 loop_latency_ms=loop_latency_ms,
+                render_latency_ms=render_latency_ms,
+                display_latency_ms=display_latency_ms,
+                iteration_latency_ms=iteration_latency_ms,
             )
         )
 
@@ -105,6 +128,8 @@ class GuidedReportBuilder:
         completed: bool,
         aborted: bool,
     ) -> dict[str, Any]:
+        if self._performance is None:
+            raise ValueError("Cannot build a guided report without observations")
         observations, blink_events = mark_possible_blinks(
             self._observations, config.max_blink_seconds
         )
@@ -114,7 +139,7 @@ class GuidedReportBuilder:
         measurement.update(summarize_guided_observations(observations, config, blink_events))
         report.update(
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "experiment": experiment,
                 "protocol": {
                     "completed": completed,
@@ -171,6 +196,21 @@ def summarize_guided_observations(
         for target in TargetName
     }
 
+    block_target_statistics = {
+        f"BLOCK_{block_index}:{target.value}": _statistics_for_records(
+            [
+                item
+                for item in discrimination_records
+                if item.block_index == block_index
+                and item.target is not None
+                and item.target.name is target
+            ],
+            config.min_samples_per_target,
+        )
+        for block_index in range(1, config.discrimination_blocks + 1)
+        for target in TargetName
+    }
+
     phase_target_statistics: dict[str, Any] = {}
     for phase in (
         ExperimentPhase.CENTER_STABILITY,
@@ -201,10 +241,16 @@ def summarize_guided_observations(
             valid_frames / tracking_frames if tracking_frames else None
         ),
         "gaze_validity_counts": {state.value: validity_counts[state] for state in GazeValidity},
+        "rejection_reason_counts": dict(
+            sorted(Counter(item.validity_reason for item in observations).items())
+        ),
+        "left_eye_state_counts": _enum_counts(observations, "left_eye_state", EyeState),
+        "right_eye_state_counts": _enum_counts(observations, "right_eye_state", EyeState),
         "possible_blink_events": blink_events,
         "phase_counts": _enum_counts(observations, "phase", ExperimentPhase),
         "measurement_stage_counts": _enum_counts(observations, "stage", MeasurementStage),
         "target_statistics": target_statistics,
+        "block_target_statistics": block_target_statistics,
         "phase_target_statistics": phase_target_statistics,
         "separability": _separability(discrimination_records, config),
     }
@@ -253,12 +299,17 @@ def _observation_dict(item: GuidedObservation) -> dict[str, Any]:
         "gaze_validity": item.gaze_validity.value,
         "left_eye_state": item.left_eye_state.value,
         "right_eye_state": item.right_eye_state.value,
+        "block_index": item.block_index,
+        "segment_index": item.segment_index,
         "validity_reason": item.validity_reason,
         "features": dict(item.features),
         "head_pose": asdict(item.head_pose) if item.head_pose is not None else None,
         "capture_latency_ms": item.capture_latency_ms,
         "feature_latency_ms": item.feature_latency_ms,
         "loop_latency_ms": item.loop_latency_ms,
+        "render_latency_ms": item.render_latency_ms,
+        "display_latency_ms": item.display_latency_ms,
+        "iteration_latency_ms": item.iteration_latency_ms,
     }
 
 

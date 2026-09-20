@@ -67,6 +67,8 @@ class GuidedValidationConfig:
     head_movement_seconds: float
     completion_display_seconds: float
     min_samples_per_target: int
+    discrimination_blocks: int
+    target_order_seed: int
     canvas_width: int
     canvas_height: int
     debug_panel_fraction: float
@@ -74,6 +76,12 @@ class GuidedValidationConfig:
     fullscreen: bool
     show_face_box: bool
     show_landmarks: bool
+    audio_enabled: bool
+    audio_required: bool
+    audio_language: str
+    audio_rate: int
+    audio_volume: int
+    hide_visual_instructions_when_audio: bool
     targets: tuple[VisualTarget, ...]
 
     @classmethod
@@ -85,6 +93,7 @@ class GuidedValidationConfig:
         validity = raw["eye_validity"]
         guided = raw["guided"]
         rendering = raw["rendering"]
+        audio = raw["audio"]
         raw_targets = raw["targets"]
         targets = tuple(
             VisualTarget(
@@ -116,6 +125,8 @@ class GuidedValidationConfig:
             head_movement_seconds=float(guided["head_movement_seconds"]),
             completion_display_seconds=float(guided["completion_display_seconds"]),
             min_samples_per_target=int(guided["min_samples_per_target"]),
+            discrimination_blocks=int(guided["discrimination_blocks"]),
+            target_order_seed=int(guided["target_order_seed"]),
             canvas_width=int(rendering["canvas_width"]),
             canvas_height=int(rendering["canvas_height"]),
             debug_panel_fraction=float(rendering["debug_panel_fraction"]),
@@ -123,6 +134,12 @@ class GuidedValidationConfig:
             fullscreen=bool(rendering["fullscreen"]),
             show_face_box=bool(rendering["show_face_box"]),
             show_landmarks=bool(rendering["show_landmarks"]),
+            audio_enabled=bool(audio["enabled"]),
+            audio_required=bool(audio["required"]),
+            audio_language=str(audio["language"]),
+            audio_rate=int(audio["rate"]),
+            audio_volume=int(audio["volume"]),
+            hide_visual_instructions_when_audio=bool(audio["hide_visual_instructions_when_active"]),
             targets=targets,
         )
         config.validate()
@@ -133,6 +150,8 @@ class GuidedValidationConfig:
             raise ValueError("debug_panel_fraction must be between 0 and 0.5")
         if self.min_samples_per_target < 1:
             raise ValueError("min_samples_per_target must be positive")
+        if self.discrimination_blocks < 3:
+            raise ValueError("discrimination_blocks must be at least 3 for blocked validation")
         durations = (
             self.tracking_stable_seconds,
             self.countdown_seconds,
@@ -148,6 +167,10 @@ class GuidedValidationConfig:
             raise ValueError("closed_ear_threshold must be between 0 and 1")
         if self.min_eye_vertical_span <= 0.0 or self.max_abs_iris_coordinate <= 0.0:
             raise ValueError("eye geometry thresholds must be positive")
+        if not -10 <= self.audio_rate <= 10:
+            raise ValueError("audio rate must be between -10 and 10")
+        if not 0 <= self.audio_volume <= 100:
+            raise ValueError("audio volume must be between 0 and 100")
         for target in self.targets:
             if not 0.0 <= target.normalized_x <= 1.0:
                 raise ValueError(f"target {target.name} x must be normalized")
@@ -156,3 +179,46 @@ class GuidedValidationConfig:
 
     def target(self, name: TargetName) -> VisualTarget:
         return next(target for target in self.targets if target.name is name)
+
+
+@dataclass(frozen=True, slots=True)
+class CalibrationConfig:
+    ridge_alpha: float
+    validation_block_index: int
+    min_train_samples_per_target: int
+    min_validation_samples_per_target: int
+    require_audio_prompts: bool
+    live_smoothing_alpha: float
+    feature_names: tuple[str, ...]
+
+    @classmethod
+    def load(cls, path: Path) -> CalibrationConfig:
+        with path.open("rb") as handle:
+            raw: dict[str, Any] = tomllib.load(handle)
+        calibration = raw["calibration"]
+        live = raw["live_evaluation"]
+        config = cls(
+            ridge_alpha=float(calibration["ridge_alpha"]),
+            validation_block_index=int(calibration["validation_block_index"]),
+            min_train_samples_per_target=int(calibration["min_train_samples_per_target"]),
+            min_validation_samples_per_target=int(calibration["min_validation_samples_per_target"]),
+            require_audio_prompts=bool(calibration["require_audio_prompts"]),
+            live_smoothing_alpha=float(live["smoothing_alpha"]),
+            feature_names=tuple(str(name) for name in calibration["feature_names"]),
+        )
+        config.validate()
+        return config
+
+    def validate(self) -> None:
+        if self.ridge_alpha < 0.0:
+            raise ValueError("ridge_alpha must be non-negative")
+        if self.validation_block_index < 1:
+            raise ValueError("validation_block_index must be positive")
+        if self.min_train_samples_per_target < 1:
+            raise ValueError("min_train_samples_per_target must be positive")
+        if self.min_validation_samples_per_target < 1:
+            raise ValueError("min_validation_samples_per_target must be positive")
+        if not 0.0 < self.live_smoothing_alpha <= 1.0:
+            raise ValueError("smoothing_alpha must be in (0, 1]")
+        if not self.feature_names or len(set(self.feature_names)) != len(self.feature_names):
+            raise ValueError("feature_names must be non-empty and unique")

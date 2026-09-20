@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
 
 from mekasa_gaze.config import GuidedValidationConfig
@@ -18,6 +19,7 @@ class ProtocolSegment:
     phase: ExperimentPhase
     target: VisualTarget
     measurement_seconds: float
+    block_index: int | None = None
 
 
 class GuidedProtocol:
@@ -35,20 +37,20 @@ class GuidedProtocol:
     @staticmethod
     def _build_segments(config: GuidedValidationConfig) -> tuple[ProtocolSegment, ...]:
         center = config.target(TargetName.CENTER)
-        discrimination = tuple(
-            ProtocolSegment(
-                ExperimentPhase.GAZE_DISCRIMINATION,
-                config.target(name),
-                config.measurement_seconds,
+        generator = random.Random(config.target_order_seed)
+        discrimination: list[ProtocolSegment] = []
+        for block_index in range(1, config.discrimination_blocks + 1):
+            names = list(TargetName)
+            generator.shuffle(names)
+            discrimination.extend(
+                ProtocolSegment(
+                    ExperimentPhase.GAZE_DISCRIMINATION,
+                    config.target(name),
+                    config.measurement_seconds,
+                    block_index=block_index,
+                )
+                for name in names
             )
-            for name in (
-                TargetName.CENTER,
-                TargetName.LEFT,
-                TargetName.RIGHT,
-                TargetName.UP,
-                TargetName.DOWN,
-            )
-        )
         return (
             ProtocolSegment(
                 ExperimentPhase.CENTER_STABILITY,
@@ -66,6 +68,17 @@ class GuidedProtocol:
     @property
     def planned_measurement_segments(self) -> tuple[ProtocolSegment, ...]:
         return self._segments
+
+    @property
+    def planned_target_orders(self) -> tuple[tuple[TargetName, ...], ...]:
+        return tuple(
+            tuple(
+                segment.target.name
+                for segment in self._segments
+                if segment.block_index == block_index
+            )
+            for block_index in range(1, self._config.discrimination_blocks + 1)
+        )
 
     def update(self, now_seconds: float, tracking_state: TrackingState) -> ProtocolSnapshot:
         if self._protocol_started_at is None:
@@ -185,6 +198,8 @@ class GuidedProtocol:
             stage_remaining_seconds=max(0.0, remaining),
             protocol_elapsed_seconds=now_seconds - self._protocol_started_at,
             phase_remaining_seconds=phase_remaining,
+            block_index=segment.block_index,
+            segment_index=self._segment_index,
         )
 
     def _phase_remaining_seconds(self, current_segment: ProtocolSegment, elapsed: float) -> float:

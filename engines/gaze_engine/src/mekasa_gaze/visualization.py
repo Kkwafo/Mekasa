@@ -10,11 +10,13 @@ import numpy.typing as npt
 
 from mekasa_gaze.config import GuidedValidationConfig
 from mekasa_gaze.domain import (
+    ExperimentPhase,
     EyeState,
     FeatureObservation,
     GazeValidity,
     MeasurementStage,
     ProtocolSnapshot,
+    TargetName,
     TrackingState,
 )
 from mekasa_gaze.validity import ValidityAssessment
@@ -36,6 +38,8 @@ def render_guided_screen(
     snapshot: ProtocolSnapshot,
     config: GuidedValidationConfig,
     rolling_fps: float | None,
+    *,
+    audio_active: bool = False,
 ) -> npt.NDArray[np.uint8]:
     canvas = np.full(
         (config.canvas_height, config.canvas_width, 3),
@@ -53,7 +57,7 @@ def render_guided_screen(
     )
     cv2.line(canvas, (test_width, 0), (test_width, config.canvas_height), _MUTED, 1)
 
-    _draw_test_area(canvas, test_width, snapshot, config)
+    _draw_test_area(canvas, test_width, snapshot, config, audio_active)
     _draw_debug_panel(
         canvas,
         test_width,
@@ -63,6 +67,82 @@ def render_guided_screen(
         snapshot,
         config,
         rolling_fps,
+        audio_active,
+    )
+    return canvas
+
+
+def render_live_evaluation_screen(
+    camera_bgr: npt.NDArray[np.uint8],
+    feature_observation: FeatureObservation,
+    assessment: ValidityAssessment,
+    prediction: tuple[float, float] | None,
+    nearest_target: TargetName | None,
+    config: GuidedValidationConfig,
+    rolling_fps: float | None,
+) -> npt.NDArray[np.uint8]:
+    snapshot = ProtocolSnapshot(
+        phase=ExperimentPhase.PREPARATION,
+        stage=MeasurementStage.WAITING_TRACKING,
+        target=None,
+        instruction="",
+        stage_remaining_seconds=None,
+        protocol_elapsed_seconds=0.0,
+    )
+    canvas = render_guided_screen(
+        camera_bgr,
+        feature_observation,
+        assessment,
+        snapshot,
+        config,
+        rolling_fps,
+    )
+    debug_width = round(config.canvas_width * config.debug_panel_fraction)
+    test_width = config.canvas_width - debug_width
+    cv2.rectangle(canvas, (0, 0), (test_width - 1, config.canvas_height - 1), _BACKGROUND, -1)
+    _text(canvas, "EVALUACION EN VIVO — EXPERIMENTAL", (36, 48), 0.76, _MUTED, 2)
+    _text(
+        canvas,
+        "Mira distintos puntos. La cruz muestra la prediccion, no controla el cursor.",
+        (36, 84),
+        0.54,
+        _TEXT,
+        1,
+    )
+    for target in config.targets:
+        point = (
+            round(target.normalized_x * (test_width - 1)),
+            round(target.normalized_y * (config.canvas_height - 1)),
+        )
+        cv2.circle(canvas, point, 9, _MUTED, 2, cv2.LINE_AA)
+        _text(canvas, target.name.value, (point[0] + 13, point[1] + 5), 0.4, _MUTED, 1)
+
+    if prediction is None:
+        message = "SIN PREDICCION — FRAME NO VALIDO"
+        color = _BAD
+    else:
+        clipped_x = min(1.0, max(0.0, prediction[0]))
+        clipped_y = min(1.0, max(0.0, prediction[1]))
+        point = (
+            round(clipped_x * (test_width - 1)),
+            round(clipped_y * (config.canvas_height - 1)),
+        )
+        cv2.circle(canvas, point, 25, _ACCENT, 3, cv2.LINE_AA)
+        cv2.line(canvas, (point[0] - 34, point[1]), (point[0] + 34, point[1]), _ACCENT, 2)
+        cv2.line(canvas, (point[0], point[1] - 34), (point[0], point[1] + 34), _ACCENT, 2)
+        target_label = nearest_target.value if nearest_target is not None else "—"
+        message = (
+            f"PREDICCION EXPERIMENTAL: {target_label}  ({prediction[0]:.3f}, {prediction[1]:.3f})"
+        )
+        color = _ACCENT
+    _text(canvas, message, (36, config.canvas_height - 44), 0.66, color, 2)
+    _text(
+        canvas,
+        "Q o ESC: finalizar evaluacion",
+        (test_width - 285, config.canvas_height - 16),
+        0.45,
+        _MUTED,
+        1,
     )
     return canvas
 
@@ -72,6 +152,7 @@ def _draw_test_area(
     test_width: int,
     snapshot: ProtocolSnapshot,
     config: GuidedValidationConfig,
+    audio_active: bool,
 ) -> None:
     _text(canvas, "MEKASA — GUIDED VISUAL VALIDATION", (36, 46), 0.75, _MUTED, 2)
     _text(
@@ -82,9 +163,11 @@ def _draw_test_area(
         _TEXT,
         1,
     )
-    instruction_lines = textwrap.wrap(_ascii(snapshot.instruction), width=58) or [""]
-    for index, line in enumerate(instruction_lines[:3]):
-        _text(canvas, line, (36, 130 + index * 34), 0.72, _TEXT, 2)
+    hide_instruction = audio_active and config.hide_visual_instructions_when_audio
+    if not hide_instruction:
+        instruction_lines = textwrap.wrap(_ascii(snapshot.instruction), width=58) or [""]
+        for index, line in enumerate(instruction_lines[:3]):
+            _text(canvas, line, (36, 130 + index * 34), 0.72, _TEXT, 2)
 
     if snapshot.target is not None:
         target_x = round(snapshot.target.normalized_x * (test_width - 1))
@@ -94,16 +177,17 @@ def _draw_test_area(
         cv2.circle(canvas, (target_x, target_y), radius + 12, color, 3, cv2.LINE_AA)
         cv2.circle(canvas, (target_x, target_y), radius, color, -1, cv2.LINE_AA)
         cv2.circle(canvas, (target_x, target_y), 7, _BACKGROUND, -1, cv2.LINE_AA)
-        label = snapshot.target.name.value
-        label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.72, 2)[0]
-        _text(
-            canvas,
-            label,
-            (target_x - label_size[0] // 2, target_y + radius + 42),
-            0.72,
-            color,
-            2,
-        )
+        if not audio_active:
+            label = snapshot.target.name.value
+            label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.72, 2)[0]
+            _text(
+                canvas,
+                label,
+                (target_x - label_size[0] // 2, target_y + radius + 42),
+                0.72,
+                color,
+                2,
+            )
 
     if snapshot.stage_remaining_seconds is not None:
         remaining = max(0.0, snapshot.stage_remaining_seconds)
@@ -169,6 +253,7 @@ def _draw_debug_panel(
     snapshot: ProtocolSnapshot,
     config: GuidedValidationConfig,
     rolling_fps: float | None,
+    audio_active: bool,
 ) -> None:
     margin = 16
     panel_width = canvas.shape[1] - panel_x
@@ -201,7 +286,10 @@ def _draw_debug_panel(
         ("Ojo izquierdo", assessment.left_eye_state.value, _eye_color(assessment.left_eye_state)),
         ("Ojo derecho", assessment.right_eye_state.value, _eye_color(assessment.right_eye_state)),
         ("FPS", f"{rolling_fps:.1f}" if rolling_fps is not None else "—", _TEXT),
+        ("Fase", snapshot.phase.value, _TEXT),
+        ("Bloque", str(snapshot.block_index) if snapshot.block_index else "—", _TEXT),
         ("Target", snapshot.target.name.value if snapshot.target else "—", _TEXT),
+        ("Audio", "ACTIVO" if audio_active else "INACTIVO", _GOOD if audio_active else _WARN),
     )
     for label, value, color in rows:
         _text(canvas, f"{label}: {value}", (panel_x + margin, y), 0.48, color, 1)

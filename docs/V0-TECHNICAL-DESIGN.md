@@ -72,7 +72,7 @@ The initial interfaces are:
 - `GazeModel.load/predict/calibrate/reset/metadata`: later provides traceable model lifecycle.
 - `GazeFilter.update/reset`: later compares EMA, One Euro and Kalman filters.
 
-Experiment 001 extracts normalized eye and iris geometry, eye-aspect ratios, relative face position and approximate yaw/pitch/roll. All ratios use inter-landmark distances so that features are less sensitive to resolution and face scale. Invalid or insufficient geometry produces `TRACKING_UNCERTAIN` or `TRACKING_LOST`; no gaze coordinate is invented.
+Experiment 001 extracts normalized eye and iris geometry, eye-aspect ratios, relative face position and approximate yaw/pitch/roll. All ratios use inter-landmark distances so that features are less sensitive to resolution and face scale. Tracking evidence and gaze-frame validity are modeled separately. Invalid or insufficient landmark evidence produces `TRACKING_UNCERTAIN` or `TRACKING_LOST`; good tracking can still produce `EYE_CLOSED`, `POSSIBLE_BLINK`, `GAZE_INVALID` or `TRACKING_INVALID` rather than `GAZE_VALID`. No gaze coordinate is invented.
 
 The facial transformation matrix is treated as a diagnostic head-pose approximation. Its coordinate convention and relationship to physical degrees must be validated before any angular-error claim.
 
@@ -118,7 +118,7 @@ There is no gaze model in Experiment 001. Experiment 002 starts with regularized
 
 Model metadata must include version, type, input/output schemas, dataset provenance, creation time, metrics, dependency environment and source commit. Artifacts require checksums and license/provenance documentation.
 
-## 9. Experiment 001 measurement design
+## 9. Experiment 001 guided measurement design
 
 Measured separately:
 
@@ -129,11 +129,13 @@ Measured separately:
 - tracking availability: good observations / attempted frames;
 - tracking loss events: transitions from a tracked state to lost;
 - consecutive loss lengths and longest loss;
-- feature stability: standard deviation and robust spread of each numeric feature while the participant attempts a steady pose;
-- process CPU: sampled process CPU percentage, clearly labelled with psutil semantics;
+- valid-gaze availability and explicit rejection/eye-state counts;
+- per-target robust feature distributions from measurement windows only;
+- descriptive LEFT/RIGHT versus CENTER iris-X and UP/DOWN versus CENTER iris-Y separability;
+- process CPU: process user+system CPU time divided by measured wall time, reported on a one-core basis and divided by logical CPU count for total-capacity context;
 - resident memory when available.
 
-Reports include sample count, warm-up, duration, hardware, OS, Python/package versions, camera backend and negotiated settings. A run with no accessible camera is a failed/blocked measurement, not zero FPS. Visual inspection is optional and excluded from automated/headless tests.
+The state machine waits for stable tracking, counts down, and then separates transition, acquisition and measurement windows for CENTER stability, five-direction discrimination and CENTER head movement. Reports include observations with derived features, sample counts, protocol state, hardware, OS, Python/package versions, camera backend and negotiated settings. A run with no accessible camera is a failed/blocked measurement, not zero FPS. Rendering is tested with deterministic synthetic data; a real guided result still requires a person to follow the targets.
 
 ## 10. Testing strategy
 
@@ -152,8 +154,9 @@ CI must not claim webcam performance because hosted runners do not represent tar
 - Local processing only; no network endpoint is needed for Experiment 001.
 - No frame/video persistence or upload by default.
 - No face images, raw landmarks tied to identity, communication contents or personal identifiers in logs.
-- Metric JSON contains aggregate technical measurements and environment metadata only.
-- Feature export is off by default and, if later added for research, requires a separate opt-in workflow, purpose, retention/deletion policy and ethics review as applicable.
+- The legacy metric JSON contains aggregate technical measurements. Guided-validation JSON also contains time-aligned derived eye/iris, coarse face and head-pose features needed for target analysis.
+- Neither format contains images, video, participant names or raw landmark arrays. Guided result files are ignored by default and require deliberate review before preservation or sharing.
+- Any later research collection requires a separate opt-in workflow, purpose, retention/deletion policy and ethics review as applicable.
 - Model download is an explicit setup action with URL, license and checksum; production startup never downloads silently.
 
 ## 12. Known risks
@@ -180,7 +183,7 @@ If the target is missed, measure image size, model mode, frame dropping and visu
 
 ## 14. V0 milestones
 
-1. Experiment 001: reproducible webcam -> landmarks -> features -> head pose -> visual debug, with honest metrics.
+1. Experiment 001: reproducible webcam -> landmarks -> valid features -> guided targets -> head pose -> visual debug, with honest per-target and performance metrics. Human guided execution remains required before interpreting results.
 2. Experiment 002: click-free personal calibration and held-out validation of baseline regressors.
 3. Experiment 003: four abstract target regions plus smoothing, dwell, hysteresis, cooldown and tracking-loss safety.
 4. Experiment 004: semantic intents YES/NO/WATER/HELP, localized presentation and offline TTS.

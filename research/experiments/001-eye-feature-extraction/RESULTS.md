@@ -40,7 +40,7 @@ Packages: MediaPipe 1.0.1, OpenCV contrib 5.0.0.93, NumPy 2.5.3, psutil 7.2.2
 
 The camera was accessible, but no face was visible during this unattended run. Therefore this run measures capture plus the no-face inference path only. It provides **no eye-feature stability, head-pose stability or tracked-face latency evidence**. `tracking_loss_events` is zero because that metric counts transitions from good tracking to non-good tracking; the run never acquired tracking. The continuous loss is represented by the 901-frame longest non-good run.
 
-The observed 29.96 FPS meets the frame-rate target for this no-face path, and median feature latency is below the 33 ms hypothesis. The P90 capture/loop latencies show strong camera-delivery variability and must not be hidden by the medians. A participant-present run under stated pose/lighting conditions is still required before Experiment 001 can be considered complete.
+The observed 29.96 FPS meets the frame-rate target for this no-face path, and median feature latency is below the 33 ms hypothesis. The P90 capture/loop latencies show strong camera-delivery variability and must not be hidden by the medians. A controlled guided run is still required before the new target-conditioned statistics can be interpreted.
 
 Aggregate raw metrics are committed in `results/2026-09-19-windows-i5-8250u-no-visible-face.json`. No frames, video or raw landmarks were persisted.
 
@@ -69,3 +69,9 @@ This run is valid evidence that face/eye tracking remained continuously availabl
 The unusually large population standard deviations for normalized iris Y (`left ≈ 1.764`, `right ≈ 0.846`) are preserved rather than discarded. Possible contributors include blinks, partially closed eyes, small vertical eyelid denominators, transient landmark geometry and actual gaze changes. The original report cannot distinguish them because it did not classify eye openness or persist per-observation derived features.
 
 Aggregate raw metrics are committed in `results/2026-09-20-windows-i5-8250u-dynamic-uncontrolled-gaze.json`. No frames, video or raw landmarks were persisted.
+
+## Guided validation readiness: 2026-09-20
+
+The guided runner, protocol, validity classification, visualization and report analysis are implemented. A hardware readiness check reopened camera 0 through Media Foundation at 640×480 and 30 FPS and obtained a 480×640 frame; the first-frame capture call measured 332.4362 ms during that probe. A separate non-fullscreen smoke start loaded the Face Landmarker model, created the CPU inference delegate and entered the camera-processing loop. It was deliberately interrupted before the protocol could complete. No guided JSON, video, image or human result was produced by the smoke check.
+
+This readiness check establishes that the camera, model initialization and application loop can start on this host. It does not establish sustained guided performance, gaze discrimination, participant compliance, target accuracy, accessibility or clinical validity. Those observations require Kofi to run the guided protocol while physically present and following the targets.

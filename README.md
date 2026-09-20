@@ -8,9 +8,9 @@ Mekasa is an experimental assistive-technology research prototype. It is not a m
 
 ## Current status
 
-The repository is at **Experiment 001 — Eye Feature Extraction**. It implements a Python pipeline boundary for webcam capture, MediaPipe face landmarks, normalized eye/iris features, approximate head pose, an optional visual debug overlay and honest aggregate performance metrics. It does not yet estimate gaze coordinates or provide the four-item communication board.
+The repository is at **Experiment 001 — Guided Visual Validation**. It implements webcam capture, MediaPipe face landmarks, normalized eye/iris features, approximate head pose, separate tracking/gaze-validity states, a reproducible five-target visual protocol, a local debug UI and structured performance/target metrics. It does not yet estimate gaze coordinates, calibrate a person or provide the four-item communication board.
 
-The first committed hardware run measured the no-visible-face path at 29.96 FPS. It is not evidence of successful face/eye tracking; see the [measured results](research/experiments/001-eye-feature-extraction/RESULTS.md).
+Two prior hardware runs are preserved: a no-visible-face instrumentation run and a participant-present `dynamic / uncontrolled gaze` run with continuous tracking but no target ground truth. Neither validates gaze accuracy or controlled stability. The guided human run is deliberately still pending; see the [measured results](research/experiments/001-eye-feature-extraction/RESULTS.md).
 
 ## Architecture
 
@@ -45,10 +45,10 @@ uv python install 3.12
 uv sync --locked
 ./scripts/fetch-face-landmarker.ps1
 uv run mekasa-probe-cameras
-uv run mekasa-experiment-001 --display
+uv run mekasa-guided-validation
 ```
 
-The `uv.lock` file must exist before `--locked` can succeed. Maintainers create/update it with `uv lock` after checking actual package compatibility. See the [experiment protocol](research/experiments/001-eye-feature-extraction/README.md) and [technical design](docs/V0-TECHNICAL-DESIGN.md).
+The guided run is fullscreen by default, can be cancelled with `Q` or `Esc`, and writes a local JSON report without saving video, frames or raw facial landmarks. The `uv.lock` file must exist before `--locked` can succeed. Maintainers create/update it with `uv lock` after checking actual package compatibility. See the [experiment protocol](research/experiments/001-eye-feature-extraction/README.md) and [technical design](docs/V0-TECHNICAL-DESIGN.md).
 
 ## Safety and limitations
 

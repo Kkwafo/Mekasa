@@ -43,3 +43,29 @@ The camera was accessible, but no face was visible during this unattended run. T
 The observed 29.96 FPS meets the frame-rate target for this no-face path, and median feature latency is below the 33 ms hypothesis. The P90 capture/loop latencies show strong camera-delivery variability and must not be hidden by the medians. A participant-present run under stated pose/lighting conditions is still required before Experiment 001 can be considered complete.
 
 Aggregate raw metrics are committed in `results/2026-09-19-windows-i5-8250u-no-visible-face.json`. No frames, video or raw landmarks were persisted.
+
+## Measured run: 2026-09-20, dynamic / uncontrolled gaze
+
+Source commit: `2c5ecc9fc665ad0834dcbbca9ccab58f7e6afc43` (clean).
+
+Configuration: Media Foundation camera 0, negotiated 640×480 at 30 FPS, 3 s warm-up, 30 s measurement, debug display disabled. A person was in front of the camera and intentionally looked in different directions while attempting to keep their head approximately still. The software did not display or record target instructions.
+
+| Metric | Observed value |
+| --- | ---: |
+| Duration | 30.1538 s |
+| Attempted frames | 901 |
+| Effective FPS | 29.8802 |
+| Tracking good / uncertain / lost | 901 / 0 / 0 |
+| Tracking availability | 100% |
+| Tracking loss events | 0 |
+| Feature latency median / P90 / max | 10.8983 / 14.2248 / 31.9564 ms |
+| Capture-to-observation latency median / P90 / max | 32.0634 / 47.8066 / 85.9729 ms |
+| Process utilization, one-core basis | 61.6631% |
+| Process utilization, total 8-logical-CPU capacity | 7.7079% |
+| Resident memory median / max | 182.9609 / 184.8359 MiB |
+
+This run is valid evidence that face/eye tracking remained continuously available for this participant, camera, pose range and environment. It is **not** a gaze-accuracy test, a controlled stability test or a clinical validation. There was no temporal ground truth for intended gaze direction. The legacy `feature_stability` section is therefore only a dispersion summary over changing, uncontrolled gaze and head behavior; it must not be interpreted as natural gaze jitter or stability.
+
+The unusually large population standard deviations for normalized iris Y (`left ≈ 1.764`, `right ≈ 0.846`) are preserved rather than discarded. Possible contributors include blinks, partially closed eyes, small vertical eyelid denominators, transient landmark geometry and actual gaze changes. The original report cannot distinguish them because it did not classify eye openness or persist per-observation derived features.
+
+Aggregate raw metrics are committed in `results/2026-09-20-windows-i5-8250u-dynamic-uncontrolled-gaze.json`. No frames, video or raw landmarks were persisted.

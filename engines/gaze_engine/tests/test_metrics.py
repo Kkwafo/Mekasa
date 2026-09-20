@@ -39,3 +39,5 @@ def test_tracking_loss_transitions_are_counted_once_per_run() -> None:
     assert measurement["longest_non_good_run_frames"] == 2
     assert measurement["tracking_availability"] == 2 / 5
     assert measurement["tracking_state_counts"]["TRACKING_LOST"] == 2
+    assert measurement["process_cpu"]["logical_cpu_count"] >= 1
+    assert measurement["process_cpu"]["process_cpu_seconds"] >= 0.0

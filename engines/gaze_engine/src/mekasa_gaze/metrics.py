@@ -33,7 +33,6 @@ class ExperimentMetrics:
     _loop_latencies: list[float]
     _features: dict[str, list[float]]
     _states: Counter[TrackingState]
-    _cpu_samples: list[float]
     _rss_samples_mb: list[float]
     _previous_available: bool | None
     _loss_events: int
@@ -41,11 +40,12 @@ class ExperimentMetrics:
     _longest_loss_frames: int
     _frames: int
     _process: psutil.Process
+    _process_cpu_seconds_started: float
 
     @classmethod
     def start(cls) -> ExperimentMetrics:
         process = psutil.Process()
-        process.cpu_percent(interval=None)
+        cpu_times = process.cpu_times()
         return cls(
             started_ns=perf_counter_ns(),
             _capture_latencies=[],
@@ -53,7 +53,6 @@ class ExperimentMetrics:
             _loop_latencies=[],
             _features={},
             _states=Counter(),
-            _cpu_samples=[],
             _rss_samples_mb=[],
             _previous_available=None,
             _loss_events=0,
@@ -61,6 +60,7 @@ class ExperimentMetrics:
             _longest_loss_frames=0,
             _frames=0,
             _process=process,
+            _process_cpu_seconds_started=cpu_times.user + cpu_times.system,
         )
 
     def add(
@@ -97,12 +97,15 @@ class ExperimentMetrics:
             self._current_loss_frames += 1
         self._previous_available = available
 
-        self._cpu_samples.append(self._process.cpu_percent(interval=None))
         self._rss_samples_mb.append(self._process.memory_info().rss / (1024 * 1024))
 
     def report(self, camera: CameraSettings, environment: dict[str, Any]) -> dict[str, Any]:
         completed_ns = perf_counter_ns()
         duration_s = (completed_ns - self.started_ns) / 1_000_000_000
+        cpu_times = self._process.cpu_times()
+        process_cpu_seconds = cpu_times.user + cpu_times.system - self._process_cpu_seconds_started
+        logical_cpu_count = psutil.cpu_count(logical=True) or 1
+        one_core_cpu_percent = 100.0 * process_cpu_seconds / duration_s if duration_s else None
         self._longest_loss_frames = max(self._longest_loss_frames, self._current_loss_frames)
         good = self._states[TrackingState.GOOD]
         stability = {
@@ -131,9 +134,20 @@ class ExperimentMetrics:
                 "capture_latency_ms": _summary(self._capture_latencies),
                 "feature_latency_ms": _summary(self._feature_latencies),
                 "loop_latency_ms": _summary(self._loop_latencies),
-                "process_cpu_percent": {
-                    **_summary(self._cpu_samples),
-                    "semantics": "psutil process utilization; may exceed 100% on multicore systems",
+                "process_cpu": {
+                    "process_cpu_seconds": process_cpu_seconds,
+                    "utilization_percent_one_core_basis": one_core_cpu_percent,
+                    "utilization_percent_total_capacity": (
+                        one_core_cpu_percent / logical_cpu_count
+                        if one_core_cpu_percent is not None
+                        else None
+                    ),
+                    "logical_cpu_count": logical_cpu_count,
+                    "semantics": (
+                        "Process user+system CPU time divided by measured wall time. "
+                        "One-core basis may exceed 100%; total-capacity basis divides "
+                        "by logical CPU count."
+                    ),
                 },
                 "resident_memory_mb": _summary(self._rss_samples_mb),
                 "feature_stability": stability,

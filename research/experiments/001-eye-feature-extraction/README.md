@@ -19,7 +19,7 @@ All durations, target positions, validity thresholds, camera settings and overla
 
 1. **Preparation** — shows the local camera debug view and waits for `TRACKING_GOOD` to remain stable for 1.5 seconds, then presents a 3-second countdown. Tracking loss before the start resets this preparation.
 2. **Center stability** — shows the center target. After a 0.75-second transition and 1-second acquisition interval, it measures for 5 seconds while asking for a quiet head and normal blinking.
-3. **Gaze discrimination** — presents CENTER, LEFT, RIGHT, UP and DOWN in order. Every target has separate transition, acquisition and 3-second measurement intervals. Only gaze-valid frames from the measurement interval contribute to target statistics.
+3. **Gaze discrimination** — presents three blocks containing CENTER, LEFT, RIGHT, UP and DOWN exactly once in a seeded-randomized order. Every target has a 1-second transition, 3-second audio/acquisition guard and 3-second measurement interval. Only gaze-valid frames from the measurement interval contribute to target statistics.
 4. **Head movement robustness** — shows the center target and asks for small, comfortable head motion while approximately maintaining the center intention. This is exploratory; it does not claim that head-pose compensation works.
 5. **Completion** — clearly reports that the test ended and the participant may rest.
 
@@ -33,7 +33,7 @@ From `C:\Projects\Mekasa`, after dependencies and the explicit MediaPipe model f
 C:\Projects\Mekasa\work\bootstrap\Scripts\uv.exe run --locked mekasa-guided-validation
 ```
 
-The default is fullscreen. Use `--no-fullscreen` only if the display environment cannot open fullscreen. Press `Q` or `Esc` to cancel; an aborted report is marked accordingly and the command exits nonzero.
+The default is fullscreen with required local Spanish audio. The installed Windows voice announces preparation, countdown, every target, head movement and completion. Speech is asynchronous and begins during transition; target labels and long visual instructions are hidden while audio is active so reading does not intentionally shift gaze. No speech audio is recorded. Use `--no-fullscreen` only if the display environment cannot open fullscreen. Press `Q` or `Esc` to cancel; an aborted report is marked accordingly and the command exits nonzero.
 
 The screen has a large test area and a smaller debug panel. The target and participant instruction take priority. The debug panel shows the live webcam, face box, relevant eye landmarks, left and right iris markers, tracking state, gaze-validity state, both eye states, rolling FPS, target, and approximate yaw/pitch/roll. It also shows the remaining time for the current stage and whole phase.
 
@@ -78,7 +78,7 @@ Each stored observation contains only derived data needed for technical analysis
 - approximate head yaw, pitch and roll;
 - capture, feature and full-loop latency.
 
-The summary includes effective FPS, latency distributions, tracking availability and losses, process CPU, resident memory, valid-gaze availability, rejected-frame and eye-state counts, possible-blink events, and statistics by phase and target. A target needs the configured minimum sample count before statistics are marked `AVAILABLE`; otherwise it is explicitly `INSUFFICIENT_SAMPLES`.
+The summary includes timestamp-derived effective FPS, capture/feature/processing/render/display/full-iteration latency distributions, tracking availability and losses, process CPU, resident memory, valid-gaze availability, rejected-frame and eye-state counts, possible-blink events, and statistics by phase, block and target. Camera/model startup is reported separately rather than contaminating sustained FPS. A target needs the configured minimum sample count before statistics are marked `AVAILABLE`; otherwise it is explicitly `INSUFFICIENT_SAMPLES`.
 
 Per-target features include count, mean, median, population standard deviation, median absolute deviation (MAD), P10, P90, minimum and maximum. CENTER stability and HEAD_MOVEMENT center data remain separate from the GAZE_DISCRIMINATION CENTER data.
 

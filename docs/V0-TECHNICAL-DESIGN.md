@@ -114,7 +114,9 @@ The split must prevent adjacent frames from leaking nearly identical observation
 
 ## 8. Baseline gaze model
 
-There is no gaze model in Experiment 001. Experiment 002 starts with regularized linear regression over normalized features, with independent X/Y outputs and a saved preprocessing pipeline. More complex models are accepted only if held-out evidence improves communication-relevant performance without an unacceptable latency or calibration burden.
+There is no gaze model in Experiment 001. Experiment 002 starts with a closed-form ridge regression over normalized iris, coarse face and diagnostic head-pose features, with independent normalized X/Y outputs and a saved preprocessing pipeline. Three seeded-randomized protocol blocks prevent a fixed target order; the final complete block is held out from both fitting and standardization. The artifact reports normalized/pixel error and nearest-target hit rate without calling those metrics clinical accuracy. More complex models are accepted only if later held-out and cross-session evidence improves communication-relevant performance without an unacceptable latency or calibration burden.
+
+The first live evaluation draws a predicted crosshair and nearest target only inside the experiment window. Invalid observations clear the prediction. It cannot control the operating-system cursor, dwell selection, AAC intents or external systems.
 
 Model metadata must include version, type, input/output schemas, dataset provenance, creation time, metrics, dependency environment and source commit. Artifacts require checksums and license/provenance documentation.
 
@@ -135,7 +137,7 @@ Measured separately:
 - process CPU: process user+system CPU time divided by measured wall time, reported on a one-core basis and divided by logical CPU count for total-capacity context;
 - resident memory when available.
 
-The state machine waits for stable tracking, counts down, and then separates transition, acquisition and measurement windows for CENTER stability, five-direction discrimination and CENTER head movement. Reports include observations with derived features, sample counts, protocol state, hardware, OS, Python/package versions, camera backend and negotiated settings. A run with no accessible camera is a failed/blocked measurement, not zero FPS. Rendering is tested with deterministic synthetic data; a real guided result still requires a person to follow the targets.
+The state machine waits for stable tracking, counts down, and then separates transition, acquisition and measurement windows for CENTER stability, three randomized five-direction discrimination blocks and CENTER head movement. A local installed Spanish voice announces short instructions before measurement so reading does not intentionally shift gaze. Reports include observations with derived features, block/target/sample state, hardware, OS, Python/package versions, camera backend and negotiated settings. A run with no accessible camera is a failed/blocked measurement, not zero FPS. Rendering and audio cue selection are tested with deterministic synthetic data; a real guided result still requires a person to follow the targets.
 
 ## 10. Testing strategy
 

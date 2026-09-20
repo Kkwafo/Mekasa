@@ -103,3 +103,30 @@ All 37 rejected observations were labelled `degenerate_eye_geometry`. They forme
 Head-pose and repeated-center medians changed during the sequential protocol. For example, median pitch was approximately 8.11° at discrimination CENTER, 11.75° at LEFT and 6.92° at RIGHT. Because every target occurred in one fixed block, target effects cannot yet be separated cleanly from posture drift or time order. Repeated, seeded-randomized blocks and audio prompts are required before fitting a calibration model.
 
 The exact report is preserved in `results/2026-09-20-windows-i5-8250u-guided-validation-01.json` with SHA-256 `d9808f9ab8485d1bdd9fb700a4bddd4f1ffc3fce87c2e628fbcc73c946b27a94`. It contains derived features but no video, images, raw facial landmark arrays or participant name. It supports continued engineering; it does not validate gaze accuracy, calibration, AAC performance or clinical suitability.
+
+## Measured run: 2026-09-20, audio-guided randomized validation 01
+
+Source commit: `c04933cb0d59170ce7a4494008ef39ab4d4ae493` (clean). The three-block protocol completed without operator cancellation. Spoken instructions used the local Windows System.Speech backend with the `Microsoft Helena Desktop` Spanish voice; no network speech service was used. Target order was seeded and randomized independently in each block.
+
+| Metric | Observed value |
+| --- | ---: |
+| Startup | 15.1521 s |
+| Frames / stream duration | 2,808 / 130.6676 s |
+| Effective FPS | 21.4820 |
+| Tracking good / uncertain / lost | 2,808 / 0 / 0 |
+| Original full-valid / rejected frames | 2,318 / 490 |
+| Original possible-blink frames / events | 112 / 28 |
+| Feature latency median / P90 | 20.0060 / 31.0283 ms |
+| Full iteration latency median / P90 | 45.0117 / 53.8782 ms |
+| Process CPU, one-core / total-capacity basis | 190.7911% / 23.8489% |
+| Resident memory maximum | 219.6484 MiB |
+
+The original report classified every DOWN measurement in blocks 2 and 3 as unusable, so the first calibration attempt correctly stopped with `DOWN: 0` held-out samples. The raw derived evidence shows why: block 2 contained 64 `OPEN/CLOSED` observations and one `CLOSED/CLOSED` observation; block 3 contained 67 `OPEN/CLOSED` observations. Block 1 still had 42 `OPEN/OPEN` DOWN observations. In other words, this was not a missing-sample or tracking-loss problem: looking down consistently narrowed the participant's right eye below the experimental EAR threshold while the left eye remained open.
+
+The pipeline was corrected prospectively by introducing `GAZE_PARTIAL`. For backward-compatible calibration of this preserved schema-3 report, observations previously labelled `EYE_CLOSED` are accepted only when their explicit per-eye state still contains one `OPEN` eye. Iris fields from the closed or invalid eye are masked and replaced by training-set means; bilateral closures, possible blinks, invalid geometry and tracking-invalid frames remain excluded. The source report itself was not rewritten.
+
+Recalibration then used 651 samples from blocks 1–2 and held out all 338 samples from block 3. All five validation targets had 67–69 samples. Held-out median normalized error was 0.1320 (99.87 px on the configured canvas), P90 was 0.2864 (208.62 px), and closest-target hit rate was 79.88%. Results varied materially by target: LEFT, RIGHT and UP each had 100% closest-target hit rate, CENTER had 95.52%, but DOWN had only 2/67 correct (2.99%) and median error 0.2596 (187.62 px). RIGHT also had a relatively large 197.53 px median error despite remaining closest to the RIGHT target.
+
+This calibration is sufficient to exercise the local live visualization, but not to claim reliable gaze control. The held-out DOWN failure and block-to-block displacement require another guided run after the partial-eye correction, followed by comparison with the same complete-block holdout. No clinical or AAC-use conclusion follows from these measurements.
+
+The exact report is preserved in `results/2026-09-20-windows-i5-8250u-audio-guided-blocked-01.json` with SHA-256 `1e01913e8003d99ad2cb5c0630212d325ad62a9752a49dec10b69a71d3152fd5`. It contains derived features only and no video, images, raw facial landmark arrays or participant name.

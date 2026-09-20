@@ -60,12 +60,12 @@ Do not commit that participant-specific working result by default. Preserve a re
 Tracking and gaze validity are separate:
 
 - `TRACKING_GOOD`, `TRACKING_UNCERTAIN`, and `TRACKING_LOST` describe face/landmark evidence;
-- `GAZE_VALID`, `EYE_CLOSED`, `POSSIBLE_BLINK`, `GAZE_INVALID`, and `TRACKING_INVALID` describe whether derived geometry is usable for gaze-feature analysis;
+- `GAZE_VALID`, `GAZE_PARTIAL`, `EYE_CLOSED`, `POSSIBLE_BLINK`, `GAZE_INVALID`, and `TRACKING_INVALID` describe whether derived geometry is usable for gaze-feature analysis;
 - each eye is also marked `OPEN`, `CLOSED`, or `INVALID`.
 
 Eye Aspect Ratio (EAR) is used as an eye-openness signal. Soukupová and Čech introduced EAR as a scalar related to eye opening and used temporal evidence for blink detection in [Real-Time Eye Blink Detection using Facial Landmarks](https://vision.fe.uni-lj.si/cvww2016/proceedings/papers/05.pdf). Mekasa's current cutoff and possible-blink duration are configurable engineering heuristics, not clinically validated thresholds or a validated blink classifier.
 
-Frames are explicitly rejected and counted when tracking is not good, required values are missing/non-finite, the vertical eye span is degenerate, EAR is below the experimental cutoff, or normalized iris coordinates exceed the configured guardrail. Short eye-closure runs bounded by valid frames are relabeled `POSSIBLE_BLINK`; other closures remain `EYE_CLOSED`. Rejected frames are never silently folded into gaze statistics.
+`GAZE_VALID` means both eyes passed the experimental geometry checks. `GAZE_PARTIAL` means exactly one eye remains usable; downstream calibration masks the unusable eye's iris coordinates and imputes those fields from training-set means. A frame is rejected only when neither eye is usable, tracking is not good, required values are missing/non-finite, or the event is classified as a possible blink. Short eye-closure runs bounded by usable frames are relabeled `POSSIBLE_BLINK`; sustained unilateral closure remains `GAZE_PARTIAL`, while bilateral closure remains `EYE_CLOSED`. The per-eye states and all rejected frames remain explicit in the report.
 
 ## Report contents and metrics
 

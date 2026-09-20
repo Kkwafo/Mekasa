@@ -17,6 +17,7 @@ class GazeValidity(StrEnum):
     """Whether derived eye features are suitable for gaze analysis."""
 
     VALID = "GAZE_VALID"
+    PARTIAL = "GAZE_PARTIAL"
     EYE_CLOSED = "EYE_CLOSED"
     BLINK = "POSSIBLE_BLINK"
     INVALID = "GAZE_INVALID"
@@ -134,6 +135,6 @@ class GuidedObservation:
     def is_valid_measurement(self) -> bool:
         return (
             self.stage is MeasurementStage.MEASUREMENT
-            and self.gaze_validity is GazeValidity.VALID
+            and self.gaze_validity in (GazeValidity.VALID, GazeValidity.PARTIAL)
             and self.target is not None
         )

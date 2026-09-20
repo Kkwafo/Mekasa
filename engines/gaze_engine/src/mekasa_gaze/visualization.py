@@ -359,7 +359,11 @@ def _tracking_color(state: TrackingState) -> tuple[int, int, int]:
 
 
 def _validity_color(state: GazeValidity) -> tuple[int, int, int]:
-    return _GOOD if state is GazeValidity.VALID else _WARN if state is GazeValidity.BLINK else _BAD
+    if state is GazeValidity.VALID:
+        return _GOOD
+    if state in (GazeValidity.PARTIAL, GazeValidity.BLINK):
+        return _WARN
+    return _BAD
 
 
 def _eye_color(state: EyeState) -> tuple[int, int, int]:

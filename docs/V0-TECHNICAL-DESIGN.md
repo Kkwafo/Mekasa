@@ -72,7 +72,7 @@ The initial interfaces are:
 - `GazeModel.load/predict/calibrate/reset/metadata`: later provides traceable model lifecycle.
 - `GazeFilter.update/reset`: later compares EMA, One Euro and Kalman filters.
 
-Experiment 001 extracts normalized eye and iris geometry, eye-aspect ratios, relative face position and approximate yaw/pitch/roll. All ratios use inter-landmark distances so that features are less sensitive to resolution and face scale. Tracking evidence and gaze-frame validity are modeled separately. Invalid or insufficient landmark evidence produces `TRACKING_UNCERTAIN` or `TRACKING_LOST`; good tracking can still produce `EYE_CLOSED`, `POSSIBLE_BLINK`, `GAZE_INVALID` or `TRACKING_INVALID` rather than `GAZE_VALID`. No gaze coordinate is invented.
+Experiment 001 extracts normalized eye and iris geometry, eye-aspect ratios, relative face position and approximate yaw/pitch/roll. All ratios use inter-landmark distances so that features are less sensitive to resolution and face scale. Tracking evidence and gaze-frame validity are modeled separately. Invalid or insufficient landmark evidence produces `TRACKING_UNCERTAIN` or `TRACKING_LOST`; good tracking can still produce `GAZE_PARTIAL`, `EYE_CLOSED`, `POSSIBLE_BLINK`, `GAZE_INVALID` or `TRACKING_INVALID` rather than `GAZE_VALID`. `GAZE_PARTIAL` preserves evidence from one usable eye while masking and mean-imputing the unusable eye's iris fields for calibration. It does not invent an observation for the unusable eye. No gaze coordinate is produced when both eyes are unusable.
 
 The facial transformation matrix is treated as a diagnostic head-pose approximation. Its coordinate convention and relationship to physical degrees must be validated before any angular-error claim.
 

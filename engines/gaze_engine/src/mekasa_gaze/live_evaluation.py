@@ -95,9 +95,13 @@ def run_live_evaluation(
                 )
                 assessment = assess_gaze_validity(observation, guided_config)
                 raw_prediction: tuple[float, float] | None = None
-                if assessment.gaze_validity is GazeValidity.VALID:
+                if assessment.gaze_validity in (GazeValidity.VALID, GazeValidity.PARTIAL):
                     try:
-                        raw_prediction = calibration_model.predict_observation(observation)
+                        raw_prediction = calibration_model.predict_observation(
+                            observation,
+                            left_eye_state=assessment.left_eye_state,
+                            right_eye_state=assessment.right_eye_state,
+                        )
                     except ValueError:
                         raw_prediction = None
                 prediction = smoother.update(raw_prediction)

@@ -177,7 +177,9 @@ def summarize_guided_observations(
 ) -> dict[str, Any]:
     validity_counts = Counter(item.gaze_validity for item in observations)
     tracking_frames = sum(item.tracking_state is TrackingState.GOOD for item in observations)
-    valid_frames = validity_counts[GazeValidity.VALID]
+    fully_valid_frames = validity_counts[GazeValidity.VALID]
+    partial_frames = validity_counts[GazeValidity.PARTIAL]
+    valid_frames = fully_valid_frames + partial_frames
     total_frames = len(observations)
     measurement_records = [item for item in observations if item.is_valid_measurement]
 
@@ -235,6 +237,8 @@ def summarize_guided_observations(
         "frames_total": total_frames,
         "frames_with_tracking": tracking_frames,
         "frames_gaze_valid": valid_frames,
+        "frames_gaze_fully_valid": fully_valid_frames,
+        "frames_gaze_partial": partial_frames,
         "frames_rejected": total_frames - valid_frames,
         "valid_gaze_availability": valid_frames / total_frames if total_frames else None,
         "valid_gaze_availability_when_tracked": (
@@ -246,7 +250,7 @@ def summarize_guided_observations(
                 Counter(
                     item.validity_reason
                     for item in observations
-                    if item.gaze_validity is not GazeValidity.VALID
+                    if item.gaze_validity not in (GazeValidity.VALID, GazeValidity.PARTIAL)
                 ).items()
             )
         ),
@@ -437,6 +441,10 @@ def _target_values(
 
 
 def _value(item: GuidedObservation, feature: str) -> float | None:
+    if feature.startswith("left_iris_") and item.left_eye_state is not EyeState.OPEN:
+        return None
+    if feature.startswith("right_iris_") and item.right_eye_state is not EyeState.OPEN:
+        return None
     if feature in item.features:
         value = float(item.features[feature])
         return value if isfinite(value) else None

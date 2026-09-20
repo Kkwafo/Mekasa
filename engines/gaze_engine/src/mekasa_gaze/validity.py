@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from math import isfinite
 
@@ -62,34 +63,35 @@ def assess_gaze_validity(
         features["right_eye_vertical_span"],
         config,
     )
-    if EyeState.CLOSED in (left_state, right_state):
+    left_state = _iris_adjusted_state(left_state, features, "left", config)
+    right_state = _iris_adjusted_state(right_state, features, "right", config)
+    states = (left_state, right_state)
+    if states == (EyeState.OPEN, EyeState.OPEN):
+        return ValidityAssessment(
+            GazeValidity.VALID,
+            left_state,
+            right_state,
+            "valid_experimental_geometry",
+        )
+    if EyeState.OPEN in states:
+        return ValidityAssessment(
+            GazeValidity.PARTIAL,
+            left_state,
+            right_state,
+            "one_eye_usable",
+        )
+    if EyeState.CLOSED in states:
         return ValidityAssessment(
             GazeValidity.EYE_CLOSED,
             left_state,
             right_state,
             "eye_aspect_ratio_below_experimental_threshold",
         )
-    if EyeState.INVALID in (left_state, right_state):
-        return ValidityAssessment(
-            GazeValidity.INVALID,
-            left_state,
-            right_state,
-            "degenerate_eye_geometry",
-        )
-
-    iris_values = (features[name] for name in _REQUIRED_FEATURES if "iris_" in name)
-    if any(abs(value) > config.max_abs_iris_coordinate for value in iris_values):
-        return ValidityAssessment(
-            GazeValidity.INVALID,
-            left_state,
-            right_state,
-            "iris_coordinate_outlier",
-        )
     return ValidityAssessment(
-        GazeValidity.VALID,
+        GazeValidity.INVALID,
         left_state,
         right_state,
-        "valid_experimental_geometry",
+        "no_usable_eye_geometry",
     )
 
 
@@ -105,6 +107,23 @@ def _eye_state(
     return EyeState.OPEN
 
 
+def _iris_adjusted_state(
+    state: EyeState,
+    features: Mapping[str, float],
+    eye: str,
+    config: GuidedValidationConfig,
+) -> EyeState:
+    if state is not EyeState.OPEN:
+        return state
+    iris_x = features[f"{eye}_iris_x"]
+    iris_y = features[f"{eye}_iris_y"]
+    if abs(iris_x) > config.max_abs_iris_coordinate:
+        return EyeState.INVALID
+    if abs(iris_y) > config.max_abs_iris_coordinate:
+        return EyeState.INVALID
+    return EyeState.OPEN
+
+
 def mark_possible_blinks(
     observations: list[GuidedObservation], max_blink_seconds: float
 ) -> tuple[list[GuidedObservation], int]:
@@ -113,13 +132,11 @@ def mark_possible_blinks(
     events = 0
     index = 0
     while index < len(output):
-        if output[index].gaze_validity is not GazeValidity.EYE_CLOSED:
+        if not _has_eye_closure(output[index]):
             index += 1
             continue
         start = index
-        while (
-            index + 1 < len(output) and output[index + 1].gaze_validity is GazeValidity.EYE_CLOSED
-        ):
+        while index + 1 < len(output) and _has_eye_closure(output[index + 1]):
             index += 1
         end = index
         bounded_by_open = (
@@ -135,3 +152,10 @@ def mark_possible_blinks(
                 output[blink_index] = replace(output[blink_index], gaze_validity=GazeValidity.BLINK)
         index += 1
     return output, events
+
+
+def _has_eye_closure(observation: GuidedObservation) -> bool:
+    return observation.gaze_validity in (
+        GazeValidity.PARTIAL,
+        GazeValidity.EYE_CLOSED,
+    ) and EyeState.CLOSED in (observation.left_eye_state, observation.right_eye_state)

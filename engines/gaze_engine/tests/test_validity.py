@@ -5,6 +5,7 @@ from pathlib import Path
 from mekasa_gaze.config import GuidedValidationConfig
 from mekasa_gaze.domain import (
     ExperimentPhase,
+    EyeState,
     FeatureObservation,
     GazeValidity,
     GuidedObservation,
@@ -42,7 +43,12 @@ def _feature_observation(
 
 
 def _guided(timestamp: float, validity: GazeValidity) -> GuidedObservation:
-    assessment = assess_gaze_validity(_feature_observation(), _config())
+    if validity is GazeValidity.PARTIAL:
+        left_eye_state, right_eye_state = EyeState.CLOSED, EyeState.OPEN
+    elif validity is GazeValidity.EYE_CLOSED:
+        left_eye_state = right_eye_state = EyeState.CLOSED
+    else:
+        left_eye_state = right_eye_state = EyeState.OPEN
     return GuidedObservation(
         relative_timestamp_seconds=timestamp,
         phase=ExperimentPhase.CENTER_STABILITY,
@@ -50,8 +56,8 @@ def _guided(timestamp: float, validity: GazeValidity) -> GuidedObservation:
         target=None,
         tracking_state=TrackingState.GOOD,
         gaze_validity=validity,
-        left_eye_state=assessment.left_eye_state,
-        right_eye_state=assessment.right_eye_state,
+        left_eye_state=left_eye_state,
+        right_eye_state=right_eye_state,
     )
 
 
@@ -69,14 +75,17 @@ def test_low_ear_is_classified_and_not_silently_dropped() -> None:
     assessment = assess_gaze_validity(
         _feature_observation(changes={"left_eye_aspect_ratio": 0.05}), _config()
     )
-    assert assessment.gaze_validity is GazeValidity.EYE_CLOSED
+    assert assessment.gaze_validity is GazeValidity.PARTIAL
+    assert assessment.left_eye_state is EyeState.CLOSED
+    assert assessment.right_eye_state is EyeState.OPEN
 
 
 def test_degenerate_vertical_span_is_invalid() -> None:
     assessment = assess_gaze_validity(
         _feature_observation(changes={"right_eye_vertical_span": 0.001}), _config()
     )
-    assert assessment.gaze_validity is GazeValidity.INVALID
+    assert assessment.gaze_validity is GazeValidity.PARTIAL
+    assert assessment.right_eye_state is EyeState.INVALID
 
 
 def test_low_ear_takes_precedence_over_small_vertical_span_for_blink_analysis() -> None:
@@ -89,7 +98,7 @@ def test_low_ear_takes_precedence_over_small_vertical_span_for_blink_analysis() 
         ),
         _config(),
     )
-    assert assessment.gaze_validity is GazeValidity.EYE_CLOSED
+    assert assessment.gaze_validity is GazeValidity.PARTIAL
     assert assessment.right_eye_state.name == "CLOSED"
 
 
@@ -97,14 +106,28 @@ def test_extreme_iris_coordinate_is_invalid() -> None:
     assessment = assess_gaze_validity(
         _feature_observation(changes={"left_iris_y": 50.0}), _config()
     )
-    assert assessment.gaze_validity is GazeValidity.INVALID
+    assert assessment.gaze_validity is GazeValidity.PARTIAL
+    assert assessment.left_eye_state is EyeState.INVALID
+
+
+def test_both_closed_eyes_are_not_usable() -> None:
+    assessment = assess_gaze_validity(
+        _feature_observation(
+            changes={
+                "left_eye_aspect_ratio": 0.05,
+                "right_eye_aspect_ratio": 0.05,
+            }
+        ),
+        _config(),
+    )
+    assert assessment.gaze_validity is GazeValidity.EYE_CLOSED
 
 
 def test_short_bounded_eye_closure_becomes_possible_blink() -> None:
     observations = [
         _guided(0.00, GazeValidity.VALID),
-        _guided(0.10, GazeValidity.EYE_CLOSED),
-        _guided(0.20, GazeValidity.EYE_CLOSED),
+        _guided(0.10, GazeValidity.PARTIAL),
+        _guided(0.20, GazeValidity.PARTIAL),
         _guided(0.30, GazeValidity.VALID),
     ]
     marked, events = mark_possible_blinks(observations, max_blink_seconds=0.45)
@@ -121,8 +144,8 @@ def test_unbounded_or_long_closure_remains_eye_closed() -> None:
     long, long_events = mark_possible_blinks(
         [
             _guided(0.0, GazeValidity.VALID),
-            _guided(0.1, GazeValidity.EYE_CLOSED),
-            _guided(0.7, GazeValidity.EYE_CLOSED),
+            _guided(0.1, GazeValidity.PARTIAL),
+            _guided(0.7, GazeValidity.PARTIAL),
             _guided(0.8, GazeValidity.VALID),
         ],
         max_blink_seconds=0.45,
@@ -130,4 +153,4 @@ def test_unbounded_or_long_closure_remains_eye_closed() -> None:
     assert unbounded_events == 0
     assert unbounded[0].gaze_validity is GazeValidity.EYE_CLOSED
     assert long_events == 0
-    assert long[1].gaze_validity is GazeValidity.EYE_CLOSED
+    assert long[1].gaze_validity is GazeValidity.PARTIAL

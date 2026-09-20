@@ -15,7 +15,7 @@ import numpy as np
 import numpy.typing as npt
 
 from mekasa_gaze.config import CalibrationConfig
-from mekasa_gaze.domain import FeatureObservation, TargetName
+from mekasa_gaze.domain import EyeState, FeatureObservation, TargetName
 from mekasa_gaze.runtime import environment, source_revision
 
 
@@ -70,9 +70,21 @@ class CalibrationModel:
             targets,
         )
 
-    def predict_observation(self, observation: FeatureObservation) -> tuple[float, float]:
-        vector = observation_vector(observation, self.feature_names)
-        prediction = ((vector - self.feature_mean) / self.feature_scale) @ self.weights
+    def predict_observation(
+        self,
+        observation: FeatureObservation,
+        *,
+        left_eye_state: EyeState = EyeState.OPEN,
+        right_eye_state: EyeState = EyeState.OPEN,
+    ) -> tuple[float, float]:
+        vector = observation_vector(
+            observation,
+            self.feature_names,
+            left_eye_state=left_eye_state,
+            right_eye_state=right_eye_state,
+        )
+        imputed = np.where(np.isfinite(vector), vector, self.feature_mean)
+        prediction = ((imputed - self.feature_mean) / self.feature_scale) @ self.weights
         prediction += self.output_intercept
         return float(prediction[0]), float(prediction[1])
 
@@ -110,10 +122,14 @@ def calibrate_from_report(
 
     train_x, train_y, train_targets = _arrays(training)
     validation_x, validation_y, validation_targets = _arrays(validation)
-    feature_mean = np.mean(train_x, axis=0)
-    feature_scale = np.std(train_x, axis=0)
+    if np.any(np.all(~np.isfinite(train_x), axis=0)):
+        raise ValueError("A calibration feature is unavailable in every training sample")
+    feature_mean = np.nanmean(train_x, axis=0)
+    imputed_train_x = np.where(np.isfinite(train_x), train_x, feature_mean)
+    imputed_validation_x = np.where(np.isfinite(validation_x), validation_x, feature_mean)
+    feature_scale = np.std(imputed_train_x, axis=0)
     feature_scale = np.where(feature_scale > 1e-9, feature_scale, 1.0)
-    standardized = (train_x - feature_mean) / feature_scale
+    standardized = (imputed_train_x - feature_mean) / feature_scale
     output_intercept = np.mean(train_y, axis=0)
     centered_y = train_y - output_intercept
     regularized_gram = standardized.T @ standardized + config.ridge_alpha * np.eye(
@@ -123,7 +139,7 @@ def calibrate_from_report(
 
     targets = _targets_from_report(report)
     train_predictions = standardized @ weights + output_intercept
-    validation_predictions = ((validation_x - feature_mean) / feature_scale) @ weights
+    validation_predictions = ((imputed_validation_x - feature_mean) / feature_scale) @ weights
     validation_predictions += output_intercept
     canvas_width, canvas_height = _test_area_dimensions(report)
 
@@ -142,6 +158,7 @@ def calibrate_from_report(
         "preprocessing": {
             "feature_mean": feature_mean.tolist(),
             "feature_scale": feature_scale.tolist(),
+            "closed_or_unusable_eye_iris_imputation": "training_feature_mean",
         },
         "model": {
             "type": "ridge_regression_closed_form",
@@ -192,6 +209,10 @@ def calibrate_from_report(
                 "session-to-session repeatability."
             ),
             "Displayed targets are prompts and do not prove fixation.",
+            (
+                "When only one eye is usable, iris features from the other eye are replaced "
+                "by training-set means rather than treated as observed gaze evidence."
+            ),
             "Closest-target hit rate is technical validation, not clinical validation.",
             (
                 "The model must not control a cursor, dwell selection, AAC, "
@@ -204,10 +225,20 @@ def calibrate_from_report(
 
 
 def observation_vector(
-    observation: FeatureObservation, feature_names: tuple[str, ...]
+    observation: FeatureObservation,
+    feature_names: tuple[str, ...],
+    *,
+    left_eye_state: EyeState = EyeState.OPEN,
+    right_eye_state: EyeState = EyeState.OPEN,
 ) -> npt.NDArray[np.float64]:
     values: list[float] = []
     for name in feature_names:
+        if name.startswith("left_iris_") and left_eye_state is not EyeState.OPEN:
+            values.append(float("nan"))
+            continue
+        if name.startswith("right_iris_") and right_eye_state is not EyeState.OPEN:
+            values.append(float("nan"))
+            continue
         value = _observation_value(observation, name)
         if value is None or not isfinite(value):
             raise ValueError(f"Observation is missing finite calibration feature {name}")
@@ -248,13 +279,13 @@ def _calibration_records(
         if (
             item["phase"] != "GAZE_DISCRIMINATION"
             or item["measurement_stage"] != "MEASUREMENT"
-            or item["gaze_validity"] != "GAZE_VALID"
             or item.get("block_index") is None
             or item.get("target") is None
+            or not _report_observation_has_usable_eye(item)
         ):
             continue
         values = [_report_value(item, name) for name in feature_names]
-        if any(value is None or not isfinite(value) for value in values):
+        if any(value is None or (not isfinite(value) and not np.isnan(value)) for value in values):
             continue
         target = item["target"]
         records.append(
@@ -271,6 +302,10 @@ def _calibration_records(
 
 
 def _report_value(item: dict[str, Any], name: str) -> float | None:
+    if name.startswith("left_iris_") and item["left_eye_state"] != EyeState.OPEN.value:
+        return float("nan")
+    if name.startswith("right_iris_") and item["right_eye_state"] != EyeState.OPEN.value:
+        return float("nan")
     if name in item["features"]:
         return float(item["features"][name])
     pose = item.get("head_pose")
@@ -280,6 +315,13 @@ def _report_value(item: dict[str, Any], name: str) -> float | None:
         "head_roll_degrees": "roll_degrees",
     }.get(name)
     return float(pose[pose_key]) if pose is not None and pose_key is not None else None
+
+
+def _report_observation_has_usable_eye(item: dict[str, Any]) -> bool:
+    if item["gaze_validity"] not in ("GAZE_VALID", "GAZE_PARTIAL", "EYE_CLOSED"):
+        return False
+    states = (item["left_eye_state"], item["right_eye_state"])
+    return EyeState.OPEN.value in states
 
 
 def _observation_value(observation: FeatureObservation, name: str) -> float | None:

@@ -35,6 +35,8 @@ def _report() -> dict[str, object]:
                         "phase": "GAZE_DISCRIMINATION",
                         "measurement_stage": "MEASUREMENT",
                         "gaze_validity": "GAZE_VALID",
+                        "left_eye_state": "OPEN",
+                        "right_eye_state": "OPEN",
                         "block_index": block,
                         "target": {
                             "name": target.value,
@@ -81,6 +83,24 @@ def test_ridge_calibration_holds_out_complete_block() -> None:
     assert metrics["normalized_error"]["median"] < 0.002
     model = CalibrationModel.from_artifact(artifact)
     assert set(model.targets) == set(TargetName)
+
+
+def test_calibration_accepts_one_usable_eye_and_imputes_the_other() -> None:
+    report = _report()
+    observations = report["observations"]
+    assert isinstance(observations, list)
+    partial = observations[0]
+    assert isinstance(partial, dict)
+    partial["gaze_validity"] = "GAZE_PARTIAL"
+    partial["left_eye_state"] = "CLOSED"
+
+    artifact = calibrate_from_report(report, _config(), report_sha256="abc")
+
+    assert artifact["split"]["training_sample_counts"]["CENTER"] == 6
+    assert (
+        artifact["preprocessing"]["closed_or_unusable_eye_iris_imputation"]
+        == "training_feature_mean"
+    )
 
 
 def test_calibration_rejects_legacy_single_block_report() -> None:

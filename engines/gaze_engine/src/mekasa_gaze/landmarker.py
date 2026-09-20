@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from time import perf_counter_ns
 
@@ -18,6 +19,45 @@ _LEFT_EYE = (362, 385, 387, 263, 373, 380)
 _RIGHT_EYE = (33, 160, 158, 133, 153, 144)
 _LEFT_IRIS = (473, 474, 475, 476, 477)
 _RIGHT_IRIS = (468, 469, 470, 471, 472)
+
+
+def features_from_landmarks(
+    landmarks: Sequence[tuple[float, float, float]],
+) -> dict[str, float]:
+    """Calculate resolution-independent Experiment 001 features."""
+    left_eye = [landmarks[index] for index in _LEFT_EYE]
+    right_eye = [landmarks[index] for index in _RIGHT_EYE]
+    left_x, left_y = normalized_iris_position(
+        [landmarks[index] for index in _LEFT_IRIS],
+        landmarks[_LEFT_EYE[0]],
+        landmarks[_LEFT_EYE[3]],
+        landmarks[_LEFT_EYE[2]],
+        landmarks[_LEFT_EYE[4]],
+    )
+    right_x, right_y = normalized_iris_position(
+        [landmarks[index] for index in _RIGHT_IRIS],
+        landmarks[_RIGHT_EYE[0]],
+        landmarks[_RIGHT_EYE[3]],
+        landmarks[_RIGHT_EYE[2]],
+        landmarks[_RIGHT_EYE[4]],
+    )
+    coordinates = np.asarray(landmarks, dtype=np.float64)
+    minimum = np.min(coordinates[:, :2], axis=0)
+    maximum = np.max(coordinates[:, :2], axis=0)
+    center = (minimum + maximum) / 2.0
+    size = maximum - minimum
+    return {
+        "left_eye_aspect_ratio": eye_aspect_ratio(left_eye),
+        "right_eye_aspect_ratio": eye_aspect_ratio(right_eye),
+        "left_iris_x": left_x,
+        "left_iris_y": left_y,
+        "right_iris_x": right_x,
+        "right_iris_y": right_y,
+        "face_center_x": float(center[0]),
+        "face_center_y": float(center[1]),
+        "face_width": float(size[0]),
+        "face_height": float(size[1]),
+    }
 
 
 class FaceFeatureExtractor:
@@ -68,7 +108,7 @@ class FaceFeatureExtractor:
 
         landmarks = [(float(p.x), float(p.y), float(p.z)) for p in result.face_landmarks[0]]
         try:
-            features = self._features(landmarks)
+            features = features_from_landmarks(landmarks)
             debug_points = tuple(
                 (landmarks[index][0], landmarks[index][1])
                 for index in (*_LEFT_EYE, *_RIGHT_EYE, *_LEFT_IRIS, *_RIGHT_IRIS)
@@ -100,42 +140,6 @@ class FaceFeatureExtractor:
             feature_latency_ms=(perf_counter_ns() - started_ns) / 1_000_000,
             debug_eye_points=debug_points,
         )
-
-    @staticmethod
-    def _features(landmarks: list[tuple[float, float, float]]) -> dict[str, float]:
-        left_eye = [landmarks[index] for index in _LEFT_EYE]
-        right_eye = [landmarks[index] for index in _RIGHT_EYE]
-        left_x, left_y = normalized_iris_position(
-            [landmarks[index] for index in _LEFT_IRIS],
-            landmarks[_LEFT_EYE[0]],
-            landmarks[_LEFT_EYE[3]],
-            landmarks[_LEFT_EYE[2]],
-            landmarks[_LEFT_EYE[4]],
-        )
-        right_x, right_y = normalized_iris_position(
-            [landmarks[index] for index in _RIGHT_IRIS],
-            landmarks[_RIGHT_EYE[0]],
-            landmarks[_RIGHT_EYE[3]],
-            landmarks[_RIGHT_EYE[2]],
-            landmarks[_RIGHT_EYE[4]],
-        )
-        coordinates = np.asarray(landmarks, dtype=np.float64)
-        minimum = np.min(coordinates[:, :2], axis=0)
-        maximum = np.max(coordinates[:, :2], axis=0)
-        center = (minimum + maximum) / 2.0
-        size = maximum - minimum
-        return {
-            "left_eye_aspect_ratio": eye_aspect_ratio(left_eye),
-            "right_eye_aspect_ratio": eye_aspect_ratio(right_eye),
-            "left_iris_x": left_x,
-            "left_iris_y": left_y,
-            "right_iris_x": right_x,
-            "right_iris_y": right_y,
-            "face_center_x": float(center[0]),
-            "face_center_y": float(center[1]),
-            "face_width": float(size[0]),
-            "face_height": float(size[1]),
-        }
 
     def close(self) -> None:
         self._landmarker.close()

@@ -167,6 +167,9 @@ def main(argv: list[str] | None = None) -> int:
     except (CameraUnavailableError, FileNotFoundError, RuntimeError, ValueError) as error:
         print(f"Live calibration evaluation could not run: {error}", file=sys.stderr)
         return 2
+    except KeyboardInterrupt:
+        print("Live calibration evaluation interrupted.", file=sys.stderr)
+        return 130
     return 0
 
 

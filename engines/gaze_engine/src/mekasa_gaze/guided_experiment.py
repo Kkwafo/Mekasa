@@ -209,6 +209,9 @@ def main(argv: list[str] | None = None) -> int:
     except (CameraUnavailableError, FileNotFoundError, RuntimeError, ValueError) as error:
         print(f"Guided validation could not run: {error}", file=sys.stderr)
         return 2
+    except KeyboardInterrupt:
+        print("Guided validation interrupted; no completed report was produced.", file=sys.stderr)
+        return 130
     measurement = report["measurement"]
     protocol = report["protocol"]
     print(

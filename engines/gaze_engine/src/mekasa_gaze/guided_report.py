@@ -242,7 +242,13 @@ def summarize_guided_observations(
         ),
         "gaze_validity_counts": {state.value: validity_counts[state] for state in GazeValidity},
         "rejection_reason_counts": dict(
-            sorted(Counter(item.validity_reason for item in observations).items())
+            sorted(
+                Counter(
+                    item.validity_reason
+                    for item in observations
+                    if item.gaze_validity is not GazeValidity.VALID
+                ).items()
+            )
         ),
         "left_eye_state_counts": _enum_counts(observations, "left_eye_state", EyeState),
         "right_eye_state_counts": _enum_counts(observations, "right_eye_state", EyeState),

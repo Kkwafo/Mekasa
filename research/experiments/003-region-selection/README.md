@@ -18,6 +18,27 @@ The screen also checks camera-relative face size. `ACERCATE UN POCO` means the d
 
 Press `Q` or `Esc` to finish. A local summary is written to `work/interaction/region-evaluation-latest.json`, and every run is also retained under `work/interaction/history/`. These ignored files contain derived selection event times and regions, but no video, images or raw facial landmarks.
 
+## Controlled validation
+
+The controlled runner measures intended-versus-selected regions:
+
+```powershell
+C:\Projects\Mekasa\work\bootstrap\Scripts\uv.exe run --locked mekasa-controlled-region-validation
+```
+
+After placement and countdown, the local Spanish voice announces one region and a visual marker appears inside it. Selection remains disabled during the four-second cue guard. The response window then accepts the first completed dwell or records `NO_SELECTION` after five seconds. Feedback is followed by the next trial.
+
+Three seeded-randomized blocks request every region exactly once, producing 12 trials in roughly two minutes. The report records:
+
+- requested and selected region for every trial;
+- `CORRECT`, `INCORRECT`, or `NO_SELECTION` outcome;
+- accuracy across all trials and accuracy when a selection occurred;
+- completion rate and response-time distributions;
+- per-region accuracy and the full confusion matrix;
+- interrupted dwell attempts, unusable frames, placement failures and predictions outside the screen.
+
+The latest report and unique history copies remain under `work/interaction/`. Region names are not shown as reading prompts during the controlled trial; audio and the target marker provide the instruction.
+
 ## Configuration
 
 Engineering defaults are in `config/experiment-003.toml`:
@@ -25,9 +46,13 @@ Engineering defaults are in `config/experiment-003.toml`:
 - `dwell_seconds`: continuous evidence required before a selection;
 - `cooldown_seconds`: period during which another selection cannot fire;
 - `hysteresis_margin`: extra boundary retained around the active candidate.
+- `controlled_validation.blocks`: complete randomized blocks;
+- `cue_seconds`: audio/acquisition guard before selection is enabled;
+- `response_timeout_seconds`: maximum selection window;
+- `feedback_seconds`: result display before the next trial.
 
 These timings and the face-size band are technical starting points, not accessibility or clinical recommendations.
 
 ## Required evaluation
 
-This first runner records free selections and therefore cannot calculate selection accuracy. The next controlled measurement must announce or display a randomized requested region and record intended-versus-selected region, time to selection, false activations, cancellations and no-selection trials. Semantic intents remain out of scope until the abstract mechanism is measured and corrected.
+The free runner cannot calculate accuracy because it has no requested target. The controlled runner supplies that missing technical ground truth, but still requires a person to complete the protocol. Semantic intents remain out of scope until controlled results are measured, corrected and repeated in another session.

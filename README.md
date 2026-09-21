@@ -50,6 +50,7 @@ uv run mekasa-guided-validation
 uv run mekasa-calibrate
 uv run mekasa-live-evaluation
 uv run mekasa-region-evaluation
+uv run mekasa-controlled-region-validation
 ```
 
 The guided run is fullscreen by default, uses a local installed Spanish voice, can be cancelled with `Q` or `Esc`, and writes a local JSON report without saving video, frames, speech audio or raw facial landmarks. Calibration and interaction artifacts stay in the ignored `work/` directory. The `uv.lock` file must exist before `--locked` can succeed. See the [guided protocol](research/experiments/001-eye-feature-extraction/README.md), [calibration protocol](research/experiments/002-personal-calibration/README.md), [region-selection protocol](research/experiments/003-region-selection/README.md) and [technical design](docs/V0-TECHNICAL-DESIGN.md).

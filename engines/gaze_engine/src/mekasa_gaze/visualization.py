@@ -21,6 +21,11 @@ from mekasa_gaze.domain import (
 )
 from mekasa_gaze.interaction import RegionName, SelectionUpdate, region_bounds
 from mekasa_gaze.placement import PlacementAssessment, PlacementState
+from mekasa_gaze.region_protocol import (
+    RegionProtocolSnapshot,
+    RegionTrialOutcome,
+    RegionTrialStage,
+)
 from mekasa_gaze.validity import ValidityAssessment
 
 _BACKGROUND = (24, 27, 31)
@@ -190,6 +195,8 @@ def render_region_selection_screen(
     config: GuidedValidationConfig,
     rolling_fps: float | None,
     placement: PlacementAssessment,
+    *,
+    show_region_labels: bool = True,
 ) -> npt.NDArray[np.uint8]:
     snapshot = ProtocolSnapshot(
         phase=ExperimentPhase.PREPARATION,
@@ -235,16 +242,17 @@ def render_region_selection_screen(
         border = _GOOD if selected else _ACCENT if active else _MUTED
         cv2.rectangle(canvas, (x1 + 8, y1 + 8), (x2 - 8, y2 - 8), fill, -1)
         cv2.rectangle(canvas, (x1 + 8, y1 + 8), (x2 - 8, y2 - 8), border, 3)
-        label = labels[region]
-        size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.82, 2)[0]
-        _text(
-            canvas,
-            label,
-            ((x1 + x2 - size[0]) // 2, (y1 + y2) // 2),
-            0.82,
-            border,
-            2,
-        )
+        if show_region_labels:
+            label = labels[region]
+            size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.82, 2)[0]
+            _text(
+                canvas,
+                label,
+                ((x1 + x2 - size[0]) // 2, (y1 + y2) // 2),
+                0.82,
+                border,
+                2,
+            )
 
     _text(canvas, "EXPERIMENTO 003 — SELECCION POR PERMANENCIA", (24, 42), 0.68, _TEXT, 2)
     if prediction is not None:
@@ -277,6 +285,100 @@ def render_region_selection_screen(
         -1,
     )
     return canvas
+
+
+def render_controlled_region_screen(
+    camera_bgr: npt.NDArray[np.uint8],
+    feature_observation: FeatureObservation,
+    assessment: ValidityAssessment,
+    prediction: tuple[float, float] | None,
+    selection: SelectionUpdate,
+    protocol: RegionProtocolSnapshot,
+    config: GuidedValidationConfig,
+    rolling_fps: float | None,
+    placement: PlacementAssessment,
+) -> npt.NDArray[np.uint8]:
+    canvas = render_region_selection_screen(
+        camera_bgr,
+        feature_observation,
+        assessment,
+        prediction,
+        selection,
+        config,
+        rolling_fps,
+        placement,
+        show_region_labels=False,
+    )
+    debug_width = round(config.canvas_width * config.debug_panel_fraction)
+    test_width = config.canvas_width - debug_width
+    header_height = 72
+    footer_height = 64
+    region_height = config.canvas_height - header_height - footer_height
+    cv2.rectangle(canvas, (0, 0), (test_width - 1, header_height - 1), _BACKGROUND, -1)
+    cv2.rectangle(
+        canvas,
+        (0, config.canvas_height - footer_height),
+        (test_width - 1, config.canvas_height - 1),
+        _BACKGROUND,
+        -1,
+    )
+    _text(canvas, "EXPERIMENTO 003 — VALIDACION CONTROLADA", (24, 40), 0.7, _TEXT, 2)
+
+    if protocol.requested is not None and protocol.stage in (
+        RegionTrialStage.CUE,
+        RegionTrialStage.RESPONSE,
+    ):
+        left, top, right, bottom = region_bounds(protocol.requested)
+        center = (
+            round((left + right) * 0.5 * test_width),
+            header_height + round((top + bottom) * 0.5 * region_height),
+        )
+        cv2.circle(canvas, center, 34, (245, 245, 245), 4, cv2.LINE_AA)
+        cv2.circle(canvas, center, 8, (245, 245, 245), -1, cv2.LINE_AA)
+
+    status, color = _controlled_region_status(protocol, selection, placement)
+    _text(canvas, status, (24, config.canvas_height - 30), 0.58, color, 2)
+    if protocol.stage_remaining_seconds is not None:
+        _text(
+            canvas,
+            f"{protocol.stage_remaining_seconds:.1f} s",
+            (test_width - 105, config.canvas_height - 30),
+            0.55,
+            _MUTED,
+            1,
+        )
+    return canvas
+
+
+def _controlled_region_status(
+    protocol: RegionProtocolSnapshot,
+    selection: SelectionUpdate,
+    placement: PlacementAssessment,
+) -> tuple[str, tuple[int, int, int]]:
+    if protocol.stage is RegionTrialStage.PREPARATION:
+        return placement.instruction, _GOOD if placement.ready else _WARN
+    if protocol.stage is RegionTrialStage.COUNTDOWN:
+        return "PREPARATE — LA PRUEBA ESTA POR COMENZAR", _ACCENT
+    if protocol.stage is RegionTrialStage.CUE:
+        return "ESCUCHA LA REGION INDICADA", _TEXT
+    if protocol.stage is RegionTrialStage.RESPONSE:
+        if not placement.ready:
+            return placement.instruction, _WARN
+        if not selection.tracking_available:
+            return "MIRADA NO DISPONIBLE — EL PROGRESO SE REINICIO", _BAD
+        if selection.candidate is not None:
+            return f"MANTENE LA MIRADA — {selection.dwell_progress * 100:.0f}%", _ACCENT
+        return "MIRA LA REGION INDICADA", _TEXT
+    if protocol.stage is RegionTrialStage.FEEDBACK and protocol.completed_trial is not None:
+        labels = {
+            RegionTrialOutcome.CORRECT: ("CORRECTO", _GOOD),
+            RegionTrialOutcome.INCORRECT: ("REGION INCORRECTA", _BAD),
+            RegionTrialOutcome.NO_SELECTION: ("SIN SELECCION", _WARN),
+        }
+        return labels[protocol.completed_trial.outcome]
+    if protocol.stage is RegionTrialStage.COMPLETE:
+        return "PRUEBA FINALIZADA — PODES DESCANSAR", _GOOD
+    return "PREPARANDO SIGUIENTE REGION", _MUTED
 
 
 def _draw_test_area(

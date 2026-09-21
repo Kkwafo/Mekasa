@@ -20,6 +20,7 @@ mekasa-guided-validation = "mekasa_gaze.guided_experiment:main"
 mekasa-calibrate = "mekasa_gaze.calibration:main"
 mekasa-live-evaluation = "mekasa_gaze.live_evaluation:main"
 mekasa-region-evaluation = "mekasa_gaze.region_evaluation:main"
+mekasa-controlled-region-validation = "mekasa_gaze.controlled_region_validation:main"
 mekasa-probe-cameras = "mekasa_gaze.probe:main"
 
 [dependency-groups]

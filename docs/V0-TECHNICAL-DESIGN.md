@@ -187,7 +187,7 @@ If the target is missed, measure image size, model mode, frame dropping and visu
 
 1. Experiment 001: reproducible webcam -> landmarks -> valid features -> guided targets -> head pose -> visual debug, with honest per-target and performance metrics. Human guided execution remains required before interpreting results.
 2. Experiment 002: click-free personal calibration and held-out validation of baseline regressors.
-3. Experiment 003: four abstract target regions plus smoothing, dwell, hysteresis, cooldown and tracking-loss safety. The baseline runner is implemented; controlled intended-versus-selected measurement remains required.
+3. Experiment 003: four abstract target regions plus smoothing, dwell, hysteresis, cooldown and tracking-loss safety. Both free operation and audio-guided controlled intended-versus-selected runners are implemented; a completed human controlled run and cross-session repetition remain required.
 4. Experiment 004: semantic intents YES/NO/WATER/HELP, localized presentation and offline TTS.
 5. Integrated V0: caregiver setup, eye-only communication path, diagnostics, tests, build and documented limitations.
 

@@ -49,25 +49,50 @@ $synth.Dispose()
 
 
 class DisabledSpeech:
+    """Null-object speech synthesizer used when audio feedback is disabled or unavailable.
+
+    Responsibility:
+        Satisfies the SpeechBackend protocol safely without performing any I/O or audio output.
+    """
+
     @property
     def active(self) -> bool:
+        """Indicate whether the local speech engine is active (always False)."""
         return False
 
     @property
     def metadata(self) -> dict[str, Any]:
+        """Return descriptive metadata indicating disabled audio feedback."""
         return {"active": False, "backend": "disabled"}
 
     def speak(self, text: str) -> None:
+        """No-op vocalization call."""
         del text
 
     def close(self) -> None:
+        """No-op resource disposal."""
         return
 
 
 class WindowsSapiSpeech:
-    """Asynchronous local speech using an installed Windows System.Speech voice."""
+    """Asynchronous local speech synthesizer using installed Windows System.Speech voices.
+
+    Responsibility:
+        Leverages the built-in Windows System.Speech API via background PowerShell process
+        spawning to generate offline auditory instructions without external network calls.
+    """
 
     def __init__(self, *, language: str, rate: int, volume: int) -> None:
+        """Initialize and probe Windows SAPI speech synthesizer for the requested language.
+
+        Args:
+            language: BCP-47 / Windows culture identifier string (e.g. 'es-ES', 'es-MX', 'es-AR').
+            rate: Speech playback speed offset (-10 to 10).
+            volume: Audio volume percentage (0 to 100).
+
+        Raises:
+            RuntimeError: If no enabled local Windows voice is found matching the language.
+        """
         self._powershell = _windows_powershell_path()
         self._language = language
         self._rate = rate
@@ -91,10 +116,12 @@ class WindowsSapiSpeech:
 
     @property
     def active(self) -> bool:
+        """Indicate whether the local speech engine is operational."""
         return True
 
     @property
     def metadata(self) -> dict[str, Any]:
+        """Return descriptive metadata of the active Windows voice."""
         return {
             "active": True,
             "backend": "windows_system_speech",
@@ -106,6 +133,14 @@ class WindowsSapiSpeech:
         }
 
     def speak(self, text: str) -> None:
+        """Synthesize and vocalize the prompt text asynchronously in the background.
+
+        Args:
+            text: Spanish instruction text to speak.
+
+        Side Effects:
+            Aborts any in-flight vocalization process and spawns a new synthesis process.
+        """
         self._stop_current()
         environment = self._environment()
         environment["MEKASA_SPEECH_TEXT"] = text
@@ -119,6 +154,11 @@ class WindowsSapiSpeech:
         )
 
     def close(self) -> None:
+        """Terminate ongoing audio playback process and clean up subprocess handles.
+
+        Side Effects:
+            Terminates or kills active PowerShell synthesis processes.
+        """
         if self._process is None:
             return
         try:
@@ -130,6 +170,7 @@ class WindowsSapiSpeech:
             self._process = None
 
     def _stop_current(self) -> None:
+        """Terminate active playback subprocess immediately."""
         if self._process is None or self._process.poll() is not None:
             self._process = None
             return
@@ -142,6 +183,7 @@ class WindowsSapiSpeech:
         self._process = None
 
     def _environment(self) -> dict[str, str]:
+        """Construct environment variables for the speech synthesis process."""
         return {
             **os.environ,
             "MEKASA_SPEECH_LANGUAGE": self._language,
@@ -150,6 +192,7 @@ class WindowsSapiSpeech:
         }
 
     def _command(self, script: str) -> list[str]:
+        """Construct PowerShell CLI invocation argument list."""
         return [
             str(self._powershell),
             "-NoLogo",
@@ -161,7 +204,19 @@ class WindowsSapiSpeech:
 
 
 class AudioInstructionController:
+    """Manages event-triggered auditory instruction prompts during protocol execution.
+
+    Responsibility:
+        Monitors protocol snapshot transitions and participant placement states to dispatch
+        spoken instructions through the configured SpeechBackend without repeating identical cues.
+    """
+
     def __init__(self, backend: SpeechBackend) -> None:
+        """Initialize the audio instruction controller with a speech backend.
+
+        Args:
+            backend: Speech synthesis backend implementation.
+        """
         self._backend = backend
         self._last_cue: str | None = None
 
@@ -170,6 +225,15 @@ class AudioInstructionController:
         snapshot: ProtocolSnapshot,
         placement: PlacementAssessment | None = None,
     ) -> None:
+        """Evaluate current protocol state and placement to speak new audio instructions.
+
+        Args:
+            snapshot: Current guided protocol snapshot.
+            placement: Optional participant camera placement assessment.
+
+        Side Effects:
+            Invokes backend.speak() whenever the evaluated cue identifier changes.
+        """
         cue = _cue(snapshot, placement)
         if cue is None or cue[0] == self._last_cue:
             return
@@ -185,6 +249,24 @@ def create_speech_backend(
     rate: int,
     volume: int,
 ) -> SpeechBackend:
+    """Factory function for creating and validating a local speech backend instance.
+
+    Responsibility:
+        Selects between WindowsSapiSpeech and DisabledSpeech based on platform and configuration.
+
+    Args:
+        enabled: Whether audio feedback is enabled by configuration.
+        required: Whether failure to find a local voice should raise an exception.
+        language: Desired voice culture identifier.
+        rate: Speech rate adjustment (-10 to 10).
+        volume: Speech volume (0 to 100).
+
+    Returns:
+        SpeechBackend: Initialized speech synthesizer instance.
+
+    Raises:
+        RuntimeError: If required is True but no compatible local voice engine is available.
+    """
     if not enabled:
         return DisabledSpeech()
     try:

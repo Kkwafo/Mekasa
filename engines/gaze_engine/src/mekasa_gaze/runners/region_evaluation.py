@@ -41,6 +41,24 @@ def run_region_evaluation(
     calibration_sha256: str,
     fullscreen: bool | None = None,
 ) -> dict[str, Any]:
+    """Execute four-quadrant dwell selection evaluation session.
+
+    Responsibility:
+        Runs interactive 4-region dwell selection loop with real-time feedback, records selection
+        events and timing latencies, and compiles an evaluation report upon user completion.
+
+    Args:
+        guided_config: UI layout and canvas configuration.
+        calibration_config: Calibration preprocessing and smoothing parameters.
+        interaction_config: Dwell parameters (dwell time, cooldown, hysteresis margin).
+        calibration_model: Personal ridge regression gaze model.
+        face_model_path: Path to face landmarker task binary.
+        calibration_sha256: SHA-256 fingerprint of the calibration model artifact.
+        fullscreen: Optional fullscreen display mode toggle.
+
+    Returns:
+        dict[str, Any]: Compiled region selection evaluation report dictionary.
+    """
     use_fullscreen = guided_config.fullscreen if fullscreen is None else fullscreen
     camera = OpenCVCameraProvider(
         index=guided_config.camera_index,
@@ -257,6 +275,14 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Execute the command-line entry point for region dwell selection evaluation.
+
+    Args:
+        argv: Optional list of command-line argument strings (defaults to sys.argv[1:]).
+
+    Returns:
+        int: 0 on success, 2 on initialization error, 130 on SIGINT.
+    """
     args = _parser().parse_args(argv)
     try:
         report = run_region_evaluation(

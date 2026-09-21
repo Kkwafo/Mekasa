@@ -31,6 +31,14 @@ def _summary(values: list[float]) -> dict[str, float | int | None]:
 
 @dataclass(slots=True)
 class ExperimentMetrics:
+    """Real-time performance and tracking quality metrics aggregator.
+
+    Responsibility:
+        Records frame-by-frame latencies (video capture, ML inference, rendering, display),
+        tracks participant facial tracking availability runs and loss transitions, samples
+        process memory (RSS) and CPU utilization, and aggregates feature stability distributions.
+    """
+
     started_ns: int
     _capture_latencies: list[float]
     _feature_latencies: list[float]
@@ -53,6 +61,11 @@ class ExperimentMetrics:
 
     @classmethod
     def start(cls) -> ExperimentMetrics:
+        """Initialize metrics collection baseline using current process CPU and timestamp.
+
+        Returns:
+            ExperimentMetrics: Ready-to-record metrics accumulator instance.
+        """
         process = psutil.Process()
         cpu_times = process.cpu_times()
         return cls(
@@ -87,6 +100,19 @@ class ExperimentMetrics:
         display_latency_ms: float | None = None,
         iteration_latency_ms: float | None = None,
     ) -> None:
+        """Record instantaneous telemetry metrics for a single processing iteration.
+
+        Args:
+            frame: Camera frame with capture timestamp and latency.
+            observation: Extracted facial feature observation.
+            loop_latency_ms: Total pipeline iteration wall-clock duration in milliseconds.
+            render_latency_ms: UI rendering time in milliseconds, if applicable.
+            display_latency_ms: Window presentation time in milliseconds, if applicable.
+            iteration_latency_ms: Complete frame-to-frame period in milliseconds, if applicable.
+
+        Side Effects:
+            Appends latency samples, updates tracking loss counters, and samples process memory.
+        """
         self._frames += 1
         if self._first_frame_timestamp_ns is None:
             self._first_frame_timestamp_ns = frame.captured_at_ns
@@ -127,6 +153,15 @@ class ExperimentMetrics:
         self._rss_samples_mb.append(self._process.memory_info().rss / (1024 * 1024))
 
     def report(self, camera: CameraSettings, environment: dict[str, Any]) -> dict[str, Any]:
+        """Compile aggregated telemetry, latencies, CPU/memory stats, and feature stability.
+
+        Args:
+            camera: Camera settings used during the run.
+            environment: Host runtime and package environment metadata.
+
+        Returns:
+            dict[str, Any]: Complete experiment measurement report dictionary (Schema 1).
+        """
         completed_ns = perf_counter_ns()
         duration_s = (completed_ns - self.started_ns) / 1_000_000_000
         cpu_times = self._process.cpu_times()

@@ -9,6 +9,8 @@ from mekasa_gaze.core.domain import RegionName
 
 
 class RegionTrialStage(StrEnum):
+    """Execution stages of a single region trial within the controlled protocol."""
+
     PREPARATION = "PREPARATION"
     COUNTDOWN = "COUNTDOWN"
     CUE = "CUE"
@@ -18,6 +20,8 @@ class RegionTrialStage(StrEnum):
 
 
 class RegionTrialOutcome(StrEnum):
+    """Categorical outcomes for completed region selection trials."""
+
     PRACTICE = "PRACTICE"
     CORRECT = "CORRECT"
     INCORRECT = "INCORRECT"
@@ -26,6 +30,13 @@ class RegionTrialOutcome(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class RegionTrialResult:
+    """Outcome record of a completed region selection trial.
+
+    Responsibility:
+        Encapsulates trial identification, target region, participant selection,
+        evaluated outcome, and response latency in seconds.
+    """
+
     trial_index: int
     block_index: int
     requested: RegionName
@@ -36,6 +47,13 @@ class RegionTrialResult:
 
 @dataclass(frozen=True, slots=True)
 class RegionProtocolSnapshot:
+    """Point-in-time state of the controlled region selection protocol.
+
+    Responsibility:
+        Provides instantaneous trial stage, requested target region, active indices,
+        time remaining in current phase, completed trial result, and completion status.
+    """
+
     stage: RegionTrialStage
     requested: RegionName | None
     trial_index: int | None
@@ -47,9 +65,20 @@ class RegionProtocolSnapshot:
 
 
 class ControlledRegionProtocol:
-    """Deterministic four-region prompt/response protocol driven by monotonic time."""
+    """Deterministic four-region prompt/response protocol driven by monotonic time.
+
+    Responsibility:
+        Coordinates the timed progression of randomized region selection trials,
+        managing stability countdowns, cue presentation, user response capture,
+        feedback intervals, and block randomization.
+    """
 
     def __init__(self, config: InteractionConfig) -> None:
+        """Initialize the controlled region selection protocol.
+
+        Args:
+            config: Interaction configuration defining phase durations, block counts, and seed.
+        """
         self._config = config
         self._trials = self._build_trials(config)
         self._stage = RegionTrialStage.PREPARATION
@@ -62,6 +91,14 @@ class ControlledRegionProtocol:
 
     @staticmethod
     def _build_trials(config: InteractionConfig) -> tuple[tuple[int, RegionName], ...]:
+        """Generate randomized target sequences across all validation blocks.
+
+        Args:
+            config: Interaction configuration containing validation block count and seed.
+
+        Returns:
+            tuple[tuple[int, RegionName], ...]: Tuple of (block_index, requested_region) pairs.
+        """
         generator = random.Random(config.target_order_seed)
         trials: list[tuple[int, RegionName]] = []
         for block_index in range(1, config.validation_blocks + 1):
@@ -72,6 +109,7 @@ class ControlledRegionProtocol:
 
     @property
     def planned_orders(self) -> tuple[tuple[RegionName, ...], ...]:
+        """Return planned region prompt presentation sequences partitioned by block."""
         return tuple(
             tuple(region for block, region in self._trials if block == block_index)
             for block_index in range(1, self._config.validation_blocks + 1)
@@ -84,6 +122,19 @@ class ControlledRegionProtocol:
         ready: bool,
         selected: RegionName | None = None,
     ) -> RegionProtocolSnapshot:
+        """Advance the protocol state machine based on monotonic time and region selection.
+
+        Args:
+            now_seconds: Monotonic timestamp in seconds (from `time.perf_counter()`).
+            ready: Whether tracking and head placement satisfy operational readiness.
+            selected: Region confirmed/selected by dwell interaction during this tick, if any.
+
+        Returns:
+            RegionProtocolSnapshot: Active trial state, target prompt, remaining time, or feedback.
+
+        Side Effects:
+            Mutates internal trial index, stage state, and timing checkpoints.
+        """
         if self._stage in (RegionTrialStage.PREPARATION, RegionTrialStage.COUNTDOWN):
             return self._update_preparation(now_seconds, ready)
         if self._stage is RegionTrialStage.COMPLETE:

@@ -15,7 +15,12 @@ from mekasa_gaze.tracking.interaction import region_bounds
 
 @dataclass(frozen=True, slots=True)
 class RegionPredictionCorrector:
-    """Session-local affine ridge correction learned from quadrant practice points."""
+    """Session-local affine ridge correction model learned from quadrant practice points.
+
+    Responsibility:
+        Maps uncalibrated or drifted raw/smoothed gaze coordinate predictions into quadrant-aligned
+        screen coordinates using closed-form 2D regularized linear transformation.
+    """
 
     input_mean: npt.NDArray[np.float64]
     input_scale: npt.NDArray[np.float64]
@@ -26,6 +31,17 @@ class RegionPredictionCorrector:
     training_error: dict[str, float | int | None]
 
     def predict(self, point: tuple[float, float]) -> tuple[float, float]:
+        """Apply the affine ridge correction transformation to a 2D gaze point.
+
+        Args:
+            point: Tuple of (x, y) baseline gaze coordinates.
+
+        Returns:
+            tuple[float, float]: Transformed (x, y) corrected coordinates.
+
+        Raises:
+            ValueError: If input point coordinates are non-finite.
+        """
         vector = np.asarray(point, dtype=np.float64)
         if vector.shape != (2,) or not np.all(np.isfinite(vector)):
             raise ValueError("Correction input must contain two finite coordinates")
@@ -34,6 +50,11 @@ class RegionPredictionCorrector:
         return float(prediction[0]), float(prediction[1])
 
     def artifact(self) -> dict[str, Any]:
+        """Serialize correction model parameters and training diagnostics to a dictionary.
+
+        Returns:
+            dict[str, Any]: JSON-serializable dictionary with weights, scalers, and error stats.
+        """
         return {
             "kind": "SESSION_REGION_RIDGE_CORRECTION_EXPERIMENTAL",
             "input": "smoothed_baseline_normalized_prediction",
@@ -58,6 +79,24 @@ def fit_region_prediction_corrector(
     ridge_alpha: float,
     min_samples_per_region: int,
 ) -> RegionPredictionCorrector:
+    """Fit a session-local 2D affine ridge regression corrector using practice observations.
+
+    Responsibility:
+        Validates sample counts per quadrant, computes standardization parameters, solves
+        regularized Gram system for 2x2 weight matrix and 2D intercept, and computes residual
+        training errors against quadrant center coordinates.
+
+    Args:
+        samples: List of (target_region, observed_prediction) pairs captured during practice.
+        ridge_alpha: Regularization strength parameter (non-negative).
+        min_samples_per_region: Minimum required practice samples per quadrant.
+
+    Returns:
+        RegionPredictionCorrector: Trained corrector model instance.
+
+    Raises:
+        ValueError: If alpha is negative, sample counts are insufficient, or points are non-finite.
+    """
     if ridge_alpha < 0.0:
         raise ValueError("ridge_alpha must be non-negative")
     if min_samples_per_region < 1:

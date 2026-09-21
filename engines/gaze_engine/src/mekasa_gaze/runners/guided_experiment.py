@@ -34,6 +34,22 @@ def run_guided_validation(
     report_path: Path,
     fullscreen: bool | None = None,
 ) -> dict[str, Any]:
+    """Execute the full guided validation experiment protocol with GUI and audio.
+
+    Responsibility:
+        Coordinates full hardware setup, window creation, MediaPipe landmark extraction,
+        monotonic state machine transitions across calibration targets, audio prompts,
+        live telemetry rendering, and report compilation upon completion or abort.
+
+    Args:
+        config: Experiment and protocol configuration.
+        model_path: Path to the MediaPipe face landmarker task binary.
+        report_path: Output file path for writing the Schema 5 report.
+        fullscreen: Optional boolean flag to force fullscreen display mode.
+
+    Returns:
+        dict[str, Any]: Compiled guided validation report dictionary.
+    """
     startup_started = perf_counter()
     use_fullscreen = config.fullscreen if fullscreen is None else fullscreen
     camera = OpenCVCameraProvider(
@@ -225,6 +241,14 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Execute the command-line entry point for guided validation experiments.
+
+    Args:
+        argv: Optional list of command-line argument strings (defaults to sys.argv[1:]).
+
+    Returns:
+        int: 0 on completed protocol, 2 on initialization error, 3 if aborted, 130 on SIGINT.
+    """
     args = _parser().parse_args(argv)
     try:
         report = run_guided_validation(

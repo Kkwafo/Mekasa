@@ -26,6 +26,22 @@ def run(
     report_path: Path,
     display: bool | None = None,
 ) -> dict[str, Any]:
+    """Execute Experiment 001 technical feasibility and latency measurement pipeline.
+
+    Responsibility:
+        Initializes camera hardware and MediaPipe face landmarker, executes warm-up frames,
+        measures loop and extraction latencies across a timed measurement window, and writes
+        an evaluation report to disk.
+
+    Args:
+        config: Experiment configuration options.
+        model_path: Path to MediaPipe Face Landmarker task model file.
+        report_path: Output path for serializing the resulting JSON report.
+        display: Optional override to enable or disable GUI debug preview.
+
+    Returns:
+        dict[str, Any]: Complete measurement report dictionary.
+    """
     should_display = config.display if display is None else display
     camera = OpenCVCameraProvider(
         index=config.camera_index,
@@ -114,6 +130,14 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Execute the command-line entry point for Experiment 001.
+
+    Args:
+        argv: Optional list of command-line argument strings (defaults to sys.argv[1:]).
+
+    Returns:
+        int: 0 on success, 2 on error.
+    """
     args = _parser().parse_args(argv)
     try:
         report = run(

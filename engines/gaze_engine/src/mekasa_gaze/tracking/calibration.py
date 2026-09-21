@@ -21,6 +21,14 @@ from mekasa_gaze.services.runtime import environment, source_revision
 
 @dataclass(frozen=True, slots=True)
 class CalibrationModel:
+    """Participant-specific Ridge Regression gaze estimation model.
+
+    Responsibility:
+        Encapsulates standardization vectors (mean and scale), regularized linear weights,
+        output intercept offsets, and target coordinates to infer continuous (x, y) screen
+        gaze coordinates from real-time ocular and head pose feature vectors.
+    """
+
     feature_names: tuple[str, ...]
     feature_mean: npt.NDArray[np.float64]
     feature_scale: npt.NDArray[np.float64]
@@ -30,6 +38,17 @@ class CalibrationModel:
 
     @classmethod
     def from_artifact(cls, artifact: dict[str, Any]) -> CalibrationModel:
+        """Deserialize a CalibrationModel from a validated JSON artifact dictionary.
+
+        Args:
+            artifact: Parsed JSON dictionary of a personal gaze calibration artifact.
+
+        Returns:
+            CalibrationModel: Reconstructed, ready-to-evaluate calibration model instance.
+
+        Raises:
+            ValueError: If artifact schema is unsupported, malformed, or contains non-finite data.
+        """
         if artifact.get("kind") != "PERSONAL_GAZE_RIDGE_EXPERIMENTAL":
             raise ValueError("Unsupported calibration model kind")
         if int(artifact.get("schema_version", 0)) < 2:
@@ -82,6 +101,20 @@ class CalibrationModel:
         left_eye_state: EyeState = EyeState.OPEN,
         right_eye_state: EyeState = EyeState.OPEN,
     ) -> tuple[float, float]:
+        """Estimate normalized screen gaze coordinates (x, y) for a single feature observation.
+
+        Responsibility:
+            Extracts the feature vector, imputes missing or closed-eye features with training
+            means, applies Z-score standardization, and projects through ridge regression weights.
+
+        Args:
+            observation: Instantaneous facial feature observation.
+            left_eye_state: EyeState of left eye (imputes mean if not OPEN).
+            right_eye_state: EyeState of right eye (imputes mean if not OPEN).
+
+        Returns:
+            tuple[float, float]: Inferred (normalized_x, normalized_y) screen coordinates.
+        """
         vector = observation_vector(
             observation,
             self.feature_names,
@@ -94,6 +127,14 @@ class CalibrationModel:
         return float(prediction[0]), float(prediction[1])
 
     def nearest_target(self, prediction: tuple[float, float]) -> TargetName:
+        """Find the visually presented target closest to the predicted gaze coordinate.
+
+        Args:
+            prediction: Tuple of (normalized_x, normalized_y) coordinates.
+
+        Returns:
+            TargetName: Canonical enum of the nearest visual calibration target.
+        """
         return min(
             self.targets,
             key=lambda name: (
@@ -109,6 +150,24 @@ def calibrate_from_report(
     *,
     report_sha256: str | None = None,
 ) -> dict[str, Any]:
+    """Train a personal ridge regression gaze calibration model from a guided experiment report.
+
+    Responsibility:
+        Filters usable gaze and head-movement observations, splits trials into training and
+        held-out validation blocks, computes feature Z-score parameters and closed-form ridge
+        regression weights, validates target error metrics, and emits a serializable model artifact.
+
+    Args:
+        report: Guided experiment report dictionary (Schema 5).
+        config: Calibration hyperparameters (ridge_alpha, feature_names, validation_block).
+        report_sha256: Optional SHA-256 hash of the input report file for provenance tracking.
+
+    Returns:
+        dict[str, Any]: Fully serializable calibration model artifact dictionary.
+
+    Raises:
+        ValueError: If report schema is invalid, required samples are missing, or alpha is invalid.
+    """
     _validate_report(report, config)
     gaze_records = _calibration_records(
         report,
@@ -308,6 +367,24 @@ def observation_vector(
     left_eye_state: EyeState = EyeState.OPEN,
     right_eye_state: EyeState = EyeState.OPEN,
 ) -> npt.NDArray[np.float64]:
+    """Assemble a 1D NumPy float64 feature array from an observation dictionary.
+
+    Responsibility:
+        Maps ordered calibration feature names to observed values, inserting NaN for
+        closed or invalid eye iris coordinates, and ensuring all other features are finite.
+
+    Args:
+        observation: Instantaneous facial feature observation.
+        feature_names: Ordered tuple of expected feature names.
+        left_eye_state: State of left eye (imputes NaN if not OPEN).
+        right_eye_state: State of right eye (imputes NaN if not OPEN).
+
+    Returns:
+        npt.NDArray[np.float64]: 1D vector of shape (len(feature_names),).
+
+    Raises:
+        ValueError: If a non-eye feature is missing or non-finite.
+    """
     values: list[float] = []
     for name in feature_names:
         if name.startswith("left_iris_") and left_eye_state is not EyeState.OPEN:
@@ -324,12 +401,33 @@ def observation_vector(
 
 
 def load_calibration_model(path: Path) -> CalibrationModel:
+    """Load and deserialize a CalibrationModel from a filesystem path.
+
+    Args:
+        path: Path to the JSON calibration artifact file.
+
+    Returns:
+        CalibrationModel: Deserialized calibration model.
+
+    Raises:
+        FileNotFoundError: If the model file does not exist.
+        ValueError: If artifact JSON schema is invalid.
+    """
     with path.open(encoding="utf-8") as model_file:
         artifact: dict[str, Any] = json.load(model_file)
     return CalibrationModel.from_artifact(artifact)
 
 
 def write_calibration_artifact(artifact: dict[str, Any], path: Path) -> None:
+    """Serialize and write a calibration model dictionary to a JSON file.
+
+    Args:
+        artifact: Model artifact dictionary.
+        path: Destination filesystem path.
+
+    Side Effects:
+        Creates parent directories if needed and writes indented UTF-8 JSON.
+    """
     serialized = json.dumps(artifact, indent=2, sort_keys=True, ensure_ascii=False, allow_nan=False)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(serialized + "\n", encoding="utf-8")
@@ -615,6 +713,14 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Execute the command-line interface for fitting personal calibration models.
+
+    Args:
+        argv: Optional list of command-line argument strings (defaults to sys.argv[1:]).
+
+    Returns:
+        int: Exit status code (0 for success, 2 for error).
+    """
     args = _parser().parse_args(argv)
     try:
         with args.report.open(encoding="utf-8") as report_file:

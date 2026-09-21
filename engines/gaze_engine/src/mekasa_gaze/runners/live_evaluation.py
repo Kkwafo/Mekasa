@@ -27,10 +27,25 @@ _WINDOW_NAME = "Mekasa Experiment 002 — Live Calibration Evaluation"
 
 @dataclass(slots=True)
 class PredictionSmoother:
+    """Exponential moving average (EMA) filter for 2D gaze coordinates.
+
+    Responsibility:
+        Reduces frame-to-frame high-frequency jitter in estimated gaze coordinates
+        using an exponential decay smoothing factor alpha in [0.0, 1.0].
+    """
+
     alpha: float
     _value: tuple[float, float] | None = None
 
     def update(self, prediction: tuple[float, float] | None) -> tuple[float, float] | None:
+        """Update the smoothed gaze estimate with a new observation.
+
+        Args:
+            prediction: Raw predicted (x, y) coordinates, or None if gaze is unavailable.
+
+        Returns:
+            tuple[float, float] | None: Smoothed coordinates, or None if gaze is lost.
+        """
         if prediction is None:
             self._value = None
             return None
@@ -52,6 +67,20 @@ def run_live_evaluation(
     face_model_path: Path,
     fullscreen: bool | None = None,
 ) -> None:
+    """Execute live visual evaluation of a trained personal calibration model.
+
+    Responsibility:
+        Initializes camera and MediaPipe landmarker, streams live predictions from the
+        CalibrationModel, applies EMA smoothing, identifies the nearest stimulus target,
+        and renders real-time visual crosshairs onto an interactive GUI canvas.
+
+    Args:
+        guided_config: Layout and visual display configuration.
+        calibration_config: Calibration parameters (smoothing alpha, face width limits).
+        calibration_model: Trained ridge regression gaze model instance.
+        face_model_path: Path to MediaPipe task model file.
+        fullscreen: Optional fullscreen display mode toggle.
+    """
     use_fullscreen = guided_config.fullscreen if fullscreen is None else fullscreen
     camera = OpenCVCameraProvider(
         index=guided_config.camera_index,
@@ -179,6 +208,14 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Execute the command-line entry point for live calibration evaluation.
+
+    Args:
+        argv: Optional list of command-line argument strings (defaults to sys.argv[1:]).
+
+    Returns:
+        int: 0 on clean exit, 2 on initialization error, 130 on SIGINT.
+    """
     args = _parser().parse_args(argv)
     try:
         run_live_evaluation(

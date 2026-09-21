@@ -12,11 +12,38 @@ Point3 = tuple[float, float, float]
 
 
 def euclidean_2d(a: Point3, b: Point3) -> float:
+    """Compute 2D Euclidean distance between two 3D points projected on the XY plane.
+
+    Responsibility:
+        Calculates planar distance between facial coordinates, ignoring depth (Z).
+
+    Args:
+        a: First point tuple (x, y, z).
+        b: Second point tuple (x, y, z).
+
+    Returns:
+        float: Planar Euclidean distance hypot(dx, dy).
+    """
     return float(np.hypot(a[0] - b[0], a[1] - b[1]))
 
 
 def eye_aspect_ratio(points: Sequence[Point3]) -> float:
-    """Return EAR for [outer, upper_outer, upper_inner, inner, lower_inner, lower_outer]."""
+    """Calculate the Eye Aspect Ratio (EAR) from six eyelid landmark coordinates.
+
+    Responsibility:
+        Computes the Soukupová & Čech (2016) ratio of vertical eyelid opening to horizontal
+        palpebral fissure width to detect blinks and measure eye openness.
+
+    Args:
+        points: Ordered sequence of 6 landmarks:
+            [outer_corner, upper_outer, upper_inner, inner_corner, lower_inner, lower_outer].
+
+    Returns:
+        float: Scalar aspect ratio; lower values indicate eye closure / blinking.
+
+    Raises:
+        ValueError: If landmark sequence length is not 6 or eye corner distance is zero.
+    """
     if len(points) != 6:
         raise ValueError("Eye aspect ratio requires exactly six points")
     horizontal = euclidean_2d(points[0], points[3])
@@ -33,6 +60,26 @@ def normalized_iris_position(
     upper_lid: Point3,
     lower_lid: Point3,
 ) -> tuple[float, float]:
+    """Calculate invariant normalized horizontal and vertical iris position ratios.
+
+    Responsibility:
+        Projects the iris center centroid onto anatomical reference vectors defined by
+        palpebral fissure corners and eyelid centers, yielding normalized coordinates
+        in the range [0.0, 1.0] invariant to head translation and scaling.
+
+    Args:
+        iris_points: Sequence of 3D landmarks delineating the iris boundary or center.
+        horizontal_start: Eye reference corner (outer corner).
+        horizontal_end: Eye reference corner (inner corner).
+        upper_lid: Landmark representing central upper eyelid margin.
+        lower_lid: Landmark representing central lower eyelid margin.
+
+    Returns:
+        tuple[float, float]: Normalized (horizontal_ratio, vertical_ratio) where ~0.5 is centered.
+
+    Raises:
+        ValueError: If iris_points is empty or either corner/eyelid distance is zero.
+    """
     if not iris_points:
         raise ValueError("At least one iris point is required")
     iris = np.mean(np.asarray(iris_points, dtype=np.float64)[:, :2], axis=0)
@@ -55,7 +102,21 @@ def normalized_iris_position(
 
 
 def euler_from_transform(matrix: npt.ArrayLike) -> HeadPose:
-    """Extract diagnostic XYZ Euler angles from a 4x4 facial transform."""
+    """Extract diagnostic pitch, roll, and yaw Euler angles from a 4x4 facial transform.
+
+    Responsibility:
+        Normalizes column vectors of the 3x3 rotation component to remove scaling artifacts,
+        then extracts XYZ rotation angles in degrees following clinical aerospace conventions.
+
+    Args:
+        matrix: 4x4 facial transformation matrix returned by MediaPipe face geometry pipeline.
+
+    Returns:
+        HeadPose: Euler angles in degrees (yaw_degrees, pitch_degrees, roll_degrees).
+
+    Raises:
+        ValueError: If input shape is not (4, 4) or rotation matrix is degenerate.
+    """
     transform = np.asarray(matrix, dtype=np.float64)
     if transform.shape != (4, 4):
         raise ValueError(f"Expected a 4x4 transform, got {transform.shape}")

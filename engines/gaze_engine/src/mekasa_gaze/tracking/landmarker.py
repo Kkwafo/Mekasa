@@ -29,7 +29,22 @@ _RIGHT_IRIS = (468, 469, 470, 471, 472)
 def features_from_landmarks(
     landmarks: Sequence[tuple[float, float, float]],
 ) -> dict[str, float]:
-    """Calculate resolution-independent Experiment 001 features."""
+    """Calculate resolution-independent oculomotor and facial geometric features.
+
+    Responsibility:
+        Extracts eye aspect ratios (EAR), vertical eyelid spans, normalized iris position
+        ratios, and normalized face bounding box dimensions from a 478-point facial mesh.
+
+    Args:
+        landmarks: Sequence of normalized (x, y, z) coordinates for all face landmarks.
+
+    Returns:
+        dict[str, float]: Feature dictionary mapping canonical feature names to scalar floats:
+            - left_eye_aspect_ratio, right_eye_aspect_ratio
+            - left_eye_vertical_span, right_eye_vertical_span
+            - left_iris_x, left_iris_y, right_iris_x, right_iris_y
+            - face_center_x, face_center_y, face_width, face_height
+    """
     left_eye = [landmarks[index] for index in _LEFT_EYE]
     right_eye = [landmarks[index] for index in _RIGHT_EYE]
     left_x, left_y = normalized_iris_position(
@@ -68,6 +83,14 @@ def features_from_landmarks(
 
 
 class FaceFeatureExtractor:
+    """Extracts eye landmarks, iris positions, and head pose via MediaPipe FaceLandmarker.
+
+    Responsibility:
+        Manages the lifecycle and inference execution of Google MediaPipe FaceLandmarker,
+        processing sequential RGB frames in video mode, extracting 478 face and iris mesh
+        landmarks, and computing invariant gaze features.
+    """
+
     def __init__(
         self,
         model_path: Path,
@@ -76,6 +99,17 @@ class FaceFeatureExtractor:
         min_face_presence_confidence: float,
         min_tracking_confidence: float,
     ) -> None:
+        """Initialize the MediaPipe Face Landmarker inference engine.
+
+        Args:
+            model_path: Filesystem path to the face_landmarker.task model binary.
+            min_face_detection_confidence: Minimum score threshold for face detection.
+            min_face_presence_confidence: Minimum score threshold for face presence.
+            min_tracking_confidence: Minimum score threshold for temporal landmark tracking.
+
+        Raises:
+            FileNotFoundError: If the model binary file does not exist at model_path.
+        """
         if not model_path.is_file():
             raise FileNotFoundError(
                 f"Face Landmarker model not found at {model_path}. "
@@ -100,6 +134,16 @@ class FaceFeatureExtractor:
         sequence: int,
         timestamp_ns: int,
     ) -> FeatureObservation:
+        """Process a single video frame and extract ocular and facial feature metrics.
+
+        Args:
+            rgb_frame: Contiguous uint8 RGB image buffer.
+            sequence: Monotonic sequence index of the video frame.
+            timestamp_ns: Monotonic capture timestamp in nanoseconds.
+
+        Returns:
+            FeatureObservation: Extracted features, tracking state, latency, and debug points.
+        """
         started_ns = perf_counter_ns()
         image = mp.Image(image_format=mp.ImageFormat.SRGB, data=np.ascontiguousarray(rgb_frame))
         result = self._landmarker.detect_for_video(image, timestamp_ns // 1_000_000)
@@ -169,18 +213,37 @@ class FaceFeatureExtractor:
         )
 
     def close(self) -> None:
+        """Release MediaPipe model graph handles and inference accelerator memory.
+
+        Side Effects:
+            Frees underlying C++ pipeline objects and closes the landmarker.
+        """
         self._landmarker.close()
 
     def __enter__(self) -> FaceFeatureExtractor:
+        """Context manager entry point; returns extractor instance."""
         return self
 
     def __exit__(self, *_args: object) -> None:
+        """Context manager exit point; disposes landmarker resources."""
         self.close()
 
 
 def draw_debug_overlay(
     bgr_frame: npt.NDArray[np.uint8], observation: FeatureObservation
 ) -> npt.NDArray[np.uint8]:
+    """Draw diagnostic eye landmark points, tracking status banner, and head pose onto a frame.
+
+    Responsibility:
+        Renders visual debug overlays on an image frame copy without mutating the input frame.
+
+    Args:
+        bgr_frame: Source image matrix in BGR format.
+        observation: Feature observation containing landmark points and tracking diagnostics.
+
+    Returns:
+        npt.NDArray[np.uint8]: Annotated copy of the image frame.
+    """
     output = bgr_frame.copy()
     height, width = output.shape[:2]
     for normalized_x, normalized_y in observation.debug_eye_points:

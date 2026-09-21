@@ -46,6 +46,21 @@ def render_loading_screen(
     title: str,
     status: str,
 ) -> npt.NDArray[np.uint8]:
+    """Generate an initial loading splash canvas with a spinner and privacy badge.
+
+    Responsibility:
+        Renders a standalone full-resolution frame informing the user of model initialization
+        or camera startup, assuring participants that no raw video is stored.
+
+    Args:
+        width: Desired canvas horizontal resolution in pixels.
+        height: Desired canvas vertical resolution in pixels.
+        title: Main header title string.
+        status: Subtitle status string describing current initialization step.
+
+    Returns:
+        npt.NDArray[np.uint8]: Rendered BGR canvas matrix.
+    """
     canvas = np.full((height, width, 3), _BACKGROUND, dtype=np.uint8)
     center_x = width // 2
     center_y = height // 2
@@ -78,6 +93,26 @@ def render_guided_screen(
     audio_active: bool = False,
     placement: PlacementAssessment | None = None,
 ) -> npt.NDArray[np.uint8]:
+    """Render split-screen guided experiment window with stimulus target and diagnostic telemetry.
+
+    Responsibility:
+        Draws the visual stimulus canvas on the left area (target dot, instructions, countdown)
+        and technical telemetry on the right panel (face thumbnail, eye landmarks, head pose,
+        EAR, and tracking quality).
+
+    Args:
+        camera_bgr: Current raw camera frame (BGR).
+        feature_observation: Instantaneous landmark observation from the tracker.
+        assessment: Instantaneous gaze validity qualification result.
+        snapshot: Current state snapshot from the guided protocol state machine.
+        config: Guided validation UI configuration (canvas dimensions, split fractions).
+        rolling_fps: Estimated rolling framerate float.
+        audio_active: Whether TTS audio feedback is enabled.
+        placement: Participant distance/alignment assessment.
+
+    Returns:
+        npt.NDArray[np.uint8]: Full rendered UI canvas (BGR format).
+    """
     canvas = np.full(
         (config.canvas_height, config.canvas_width, 3),
         _BACKGROUND,
@@ -120,6 +155,25 @@ def render_live_evaluation_screen(
     rolling_fps: float | None,
     placement: PlacementAssessment | None = None,
 ) -> npt.NDArray[np.uint8]:
+    """Render the live gaze estimation evaluation interface.
+
+    Responsibility:
+        Draws reference calibration targets, predicted gaze crosshair overlay, and nearest-target
+        classification badge on the main stimulus area alongside the telemetry side panel.
+
+    Args:
+        camera_bgr: Raw camera image frame.
+        feature_observation: Facial feature observation.
+        assessment: Gaze validity assessment.
+        prediction: Normalized (x, y) gaze prediction from calibration model, or None.
+        nearest_target: Closest calibration target to the prediction.
+        config: UI layout configuration.
+        rolling_fps: Current capture framerate.
+        placement: Participant placement evaluation.
+
+    Returns:
+        npt.NDArray[np.uint8]: Rendered full canvas matrix.
+    """
     snapshot = ProtocolSnapshot(
         phase=ExperimentPhase.PREPARATION,
         stage=MeasurementStage.WAITING_TRACKING,
@@ -199,6 +253,26 @@ def render_region_selection_screen(
     *,
     show_region_labels: bool = True,
 ) -> npt.NDArray[np.uint8]:
+    """Render the four-region dwell selection interface.
+
+    Responsibility:
+        Draws four interactive quadrant cards with dynamic highlight borders reflecting candidate
+        dwell state, confirmed selection highlights, bottom dwell progress bar, and feedback text.
+
+    Args:
+        camera_bgr: Raw camera image frame.
+        feature_observation: Facial feature observation.
+        assessment: Gaze validity assessment.
+        prediction: Normalized (x, y) gaze prediction point.
+        selection: Dwell selector state update (candidate, progress, cooldown).
+        config: UI layout configuration.
+        rolling_fps: Current capture framerate.
+        placement: Participant distance/alignment assessment.
+        show_region_labels: Whether to render "REGION 1..4" quadrant label text.
+
+    Returns:
+        npt.NDArray[np.uint8]: Rendered full canvas matrix.
+    """
     snapshot = ProtocolSnapshot(
         phase=ExperimentPhase.PREPARATION,
         stage=MeasurementStage.WAITING_TRACKING,
@@ -299,6 +373,26 @@ def render_controlled_region_screen(
     rolling_fps: float | None,
     placement: PlacementAssessment,
 ) -> npt.NDArray[np.uint8]:
+    """Render the controlled four-region empirical validation protocol screen.
+
+    Responsibility:
+        Draws trial stage cues (e.g. "MIRA LA REGION X"), block and trial counters,
+        countdown timers, outcome banners (CORRECT, INCORRECT, TIMEOUT), and response latency.
+
+    Args:
+        camera_bgr: Raw camera image frame.
+        feature_observation: Facial feature observation.
+        assessment: Gaze validity assessment.
+        prediction: Normalized (x, y) gaze prediction point.
+        selection: Dwell selector state update.
+        protocol: Controlled region protocol state snapshot.
+        config: UI layout configuration.
+        rolling_fps: Current capture framerate.
+        placement: Participant distance/alignment assessment.
+
+    Returns:
+        npt.NDArray[np.uint8]: Rendered full canvas matrix.
+    """
     canvas = render_region_selection_screen(
         camera_bgr,
         feature_observation,

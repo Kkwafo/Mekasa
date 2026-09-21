@@ -10,6 +10,13 @@ from mekasa_gaze.core.domain import TargetName, VisualTarget
 
 @dataclass(frozen=True, slots=True)
 class ExperimentConfig:
+    """Configuration parameters for Experiment 001 basic feature extraction.
+
+    Responsibility:
+        Encapsulates camera capture properties, face detection confidence thresholds,
+        and experiment durations parsed from TOML configuration files.
+    """
+
     camera_index: int
     backend: str
     width: int
@@ -24,6 +31,18 @@ class ExperimentConfig:
 
     @classmethod
     def load(cls, path: Path) -> ExperimentConfig:
+        """Load and parse experiment configuration from a TOML file.
+
+        Args:
+            path: Absolute or relative Path to the TOML configuration file.
+
+        Returns:
+            ExperimentConfig: Strongly-typed immutable configuration instance.
+
+        Raises:
+            FileNotFoundError: If the configuration file does not exist.
+            KeyError: If mandatory configuration sections or fields are missing.
+        """
         with path.open("rb") as handle:
             raw: dict[str, Any] = tomllib.load(handle)
         camera = raw["camera"]
@@ -46,6 +65,13 @@ class ExperimentConfig:
 
 @dataclass(frozen=True, slots=True)
 class GuidedValidationConfig:
+    """Configuration parameters for Experiment 001 Guided Visual Validation.
+
+    Responsibility:
+        Defines rigorous thresholds for face distance placement, ocular validity,
+        micro-stage durations, audio prompting, and screen canvas layout.
+    """
+
     camera_index: int
     backend: str
     width: int
@@ -88,6 +114,18 @@ class GuidedValidationConfig:
 
     @classmethod
     def load(cls, path: Path) -> GuidedValidationConfig:
+        """Load and validate guided validation configuration from a TOML file.
+
+        Args:
+            path: Absolute or relative Path to the TOML configuration file.
+
+        Returns:
+            GuidedValidationConfig: Validated immutable configuration instance.
+
+        Raises:
+            FileNotFoundError: If the configuration file cannot be found.
+            ValueError: If parameter constraints or target coordinates are violated.
+        """
         with path.open("rb") as handle:
             raw: dict[str, Any] = tomllib.load(handle)
         camera = raw["camera"]
@@ -151,6 +189,11 @@ class GuidedValidationConfig:
         return config
 
     def validate(self) -> None:
+        """Validate all parameter constraints and physical invariants.
+
+        Raises:
+            ValueError: If bounds, positive durations, or target normalizations are invalid.
+        """
         if not 0.0 < self.debug_panel_fraction < 0.5:
             raise ValueError("debug_panel_fraction must be between 0 and 0.5")
         if not 0.0 < self.min_face_width < self.max_face_width < 1.0:
@@ -185,11 +228,26 @@ class GuidedValidationConfig:
                 raise ValueError(f"target {target.name} y must be normalized")
 
     def target(self, name: TargetName) -> VisualTarget:
+        """Retrieve target definition by its semantic name.
+
+        Args:
+            name: Target identifier to search for.
+
+        Returns:
+            VisualTarget: Normalized target coordinates.
+        """
         return next(target for target in self.targets if target.name is name)
 
 
 @dataclass(frozen=True, slots=True)
 class CalibrationConfig:
+    """Configuration parameters for Experiment 002 Personal Gaze Calibration.
+
+    Responsibility:
+        Defines Ridge regression hyperparameter alpha, cross-validation split configuration,
+        and minimum sample quotas required for fitting personal models.
+    """
+
     ridge_alpha: float
     validation_block_index: int
     min_train_samples_per_target: int
@@ -205,6 +263,14 @@ class CalibrationConfig:
 
     @classmethod
     def load(cls, path: Path) -> CalibrationConfig:
+        """Load and validate calibration configuration from a TOML file.
+
+        Args:
+            path: Path to the TOML configuration file.
+
+        Returns:
+            CalibrationConfig: Validated immutable configuration instance.
+        """
         with path.open("rb") as handle:
             raw: dict[str, Any] = tomllib.load(handle)
         calibration = raw["calibration"]
@@ -229,6 +295,11 @@ class CalibrationConfig:
         return config
 
     def validate(self) -> None:
+        """Validate calibration hyperparameter ranges and feature uniqueness.
+
+        Raises:
+            ValueError: If regularizer is negative or sample count constraints are violated.
+        """
         if self.ridge_alpha < 0.0:
             raise ValueError("ridge_alpha must be non-negative")
         if self.validation_block_index < 1:
@@ -253,6 +324,13 @@ class CalibrationConfig:
 
 @dataclass(frozen=True, slots=True)
 class InteractionConfig:
+    """Configuration parameters for Experiment 003 Dwell-Time Region Selection.
+
+    Responsibility:
+        Configures dwell fixation duration, cooldown delay, boundary hysteresis margins,
+        and controlled prompt/response validation protocol parameters.
+    """
+
     dwell_seconds: float
     cooldown_seconds: float
     hysteresis_margin: float
@@ -270,6 +348,14 @@ class InteractionConfig:
 
     @classmethod
     def load(cls, path: Path) -> InteractionConfig:
+        """Load and validate interaction configuration from a TOML file.
+
+        Args:
+            path: Path to the TOML configuration file.
+
+        Returns:
+            InteractionConfig: Validated immutable configuration instance.
+        """
         with path.open("rb") as handle:
             raw: dict[str, Any] = tomllib.load(handle)
         selection = raw["selection"]
@@ -294,6 +380,11 @@ class InteractionConfig:
         return config
 
     def validate(self) -> None:
+        """Validate interaction timings, hysteresis boundaries, and timeout orderings.
+
+        Raises:
+            ValueError: If timeouts, dwell periods, or block numbers are inconsistent.
+        """
         if self.dwell_seconds <= 0.0:
             raise ValueError("dwell_seconds must be positive")
         if self.cooldown_seconds < 0.0:

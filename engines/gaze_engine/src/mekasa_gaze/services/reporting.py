@@ -54,12 +54,22 @@ _ANALYZED_FEATURES = (
 
 
 class GuidedReportBuilder:
+    """Builder for structured experimental validation reports.
+
+    Responsibility:
+        Aggregates frame observations during a guided validation run, tracks pipeline
+        latencies, relabels physiological blinks, calculates per-target statistics, and compiles
+        a comprehensive JSON report adhering to Schema 5.
+    """
+
     def __init__(self) -> None:
+        """Initialize empty observation accumulator and performance tracker."""
         self._performance: ExperimentMetrics | None = None
         self._observations: list[GuidedObservation] = []
         self._first_timestamp_ns: int | None = None
 
     def start_measurement(self) -> None:
+        """Begin performance metrics tracking if not already active."""
         if self._performance is None:
             self._performance = ExperimentMetrics.start()
 
@@ -75,6 +85,21 @@ class GuidedReportBuilder:
         display_latency_ms: float = 0.0,
         iteration_latency_ms: float = 0.0,
     ) -> None:
+        """Record an observation tick from the guided validation loop.
+
+        Args:
+            frame: Camera frame with capture timing.
+            feature_observation: Landmark and feature data.
+            snapshot: Active protocol state machine snapshot.
+            assessment: Sample validity qualification.
+            loop_latency_ms: Core processing loop latency in milliseconds.
+            render_latency_ms: UI rendering latency in milliseconds.
+            display_latency_ms: Window presentation latency in milliseconds.
+            iteration_latency_ms: Frame-to-frame period in milliseconds.
+
+        Side Effects:
+            Appends a new GuidedObservation to internal memory and updates metrics.
+        """
         self.start_measurement()
         assert self._performance is not None
         if self._first_timestamp_ns is None:
@@ -129,6 +154,22 @@ class GuidedReportBuilder:
         completed: bool,
         aborted: bool,
     ) -> dict[str, Any]:
+        """Compile recorded observations, latencies, and statistics into a Schema 5 report.
+
+        Args:
+            camera: Hardware camera settings.
+            environment: Runtime platform metadata.
+            config: Protocol configuration parameters.
+            experiment: Experiment provenance metadata.
+            completed: Whether the protocol ran to normal completion.
+            aborted: Whether the operator aborted the protocol early.
+
+        Returns:
+            dict[str, Any]: Complete guided validation report dictionary.
+
+        Raises:
+            ValueError: If called before any observations were recorded.
+        """
         if self._performance is None:
             raise ValueError("Cannot build a guided report without observations")
         observations, blink_events = mark_possible_blinks(
@@ -176,6 +217,20 @@ def summarize_guided_observations(
     config: GuidedValidationConfig,
     blink_events: int,
 ) -> dict[str, Any]:
+    """Calculate aggregated validity, target distributions, and separability statistics.
+
+    Responsibility:
+        Processes the sequence of observations to compute sample validity ratios, breakdown
+        by eye and rejection cause, target-by-target medians and MADs, and feature separability.
+
+    Args:
+        observations: Sequential list of recorded guided observations.
+        config: Guided validation experiment configuration.
+        blink_events: Total count of detected physiological blink runs.
+
+    Returns:
+        dict[str, Any]: Consolidated dictionary of summary metrics.
+    """
     validity_counts = Counter(item.gaze_validity for item in observations)
     tracking_frames = sum(item.tracking_state is TrackingState.GOOD for item in observations)
     fully_valid_frames = validity_counts[GazeValidity.VALID]
@@ -268,6 +323,15 @@ def summarize_guided_observations(
 
 
 def write_guided_report(report: dict[str, Any], path: Path) -> None:
+    """Serialize and write a guided experiment report dictionary to a JSON file.
+
+    Args:
+        report: Validated report dictionary conforming to Schema 5.
+        path: Destination filesystem path.
+
+    Side Effects:
+        Creates parent directories if necessary and writes UTF-8 encoded JSON.
+    """
     serialized = json.dumps(
         report,
         indent=2,

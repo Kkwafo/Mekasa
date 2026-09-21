@@ -16,6 +16,13 @@ from mekasa_gaze.core.domain import (
 
 @dataclass(frozen=True, slots=True)
 class ProtocolSegment:
+    """Scheduled segment in the guided validation protocol.
+
+    Responsibility:
+        Associates an experiment phase, visual target stimulus, measurement duration,
+        and block counter into an immutable scheduled segment.
+    """
+
     phase: ExperimentPhase
     target: VisualTarget
     measurement_seconds: float
@@ -23,9 +30,20 @@ class ProtocolSegment:
 
 
 class GuidedProtocol:
-    """Deterministic guided-validation state machine driven by monotonic time."""
+    """Deterministic guided-validation state machine driven by monotonic time.
+
+    Responsibility:
+        Coordinates the timed progression of multi-target calibration and validation
+        experiments, managing preparation, stability, target presentation, pause on tracking
+        loss, and resumption upon face re-acquisition.
+    """
 
     def __init__(self, config: GuidedValidationConfig) -> None:
+        """Initialize the protocol state machine.
+
+        Args:
+            config: Guided validation configuration defining phase durations and targets.
+        """
         self._config = config
         self._segments = self._build_segments(config)
         self._stable_since: float | None = None
@@ -38,6 +56,14 @@ class GuidedProtocol:
 
     @staticmethod
     def _build_segments(config: GuidedValidationConfig) -> tuple[ProtocolSegment, ...]:
+        """Construct the deterministic sequence of protocol segments.
+
+        Args:
+            config: Guided validation configuration.
+
+        Returns:
+            tuple[ProtocolSegment, ...]: Complete planned segment schedule.
+        """
         center = config.target(TargetName.CENTER)
         generator = random.Random(config.target_order_seed)
         segments: list[ProtocolSegment] = [
@@ -72,10 +98,12 @@ class GuidedProtocol:
 
     @property
     def planned_measurement_segments(self) -> tuple[ProtocolSegment, ...]:
+        """Return all planned protocol segments in execution order."""
         return self._segments
 
     @property
     def planned_target_orders(self) -> tuple[tuple[TargetName, ...], ...]:
+        """Return target presentation orders partitioned by discrimination block."""
         return tuple(
             tuple(
                 segment.target.name
@@ -87,6 +115,18 @@ class GuidedProtocol:
         )
 
     def update(self, now_seconds: float, tracking_state: TrackingState) -> ProtocolSnapshot:
+        """Advance the protocol state machine based on current time and tracking quality.
+
+        Args:
+            now_seconds: Monotonic timestamp in seconds (from `time.perf_counter()`).
+            tracking_state: Current tracking assessment (TrackingState.GOOD, UNCERTAIN, LOST).
+
+        Returns:
+            ProtocolSnapshot: Current state, active target, remaining countdown, and instruction.
+
+        Side Effects:
+            Mutates internal timing checkpoints, advances segment indices, or triggers pause/resume.
+        """
         if self._protocol_started_at is None:
             return self._update_preparation(now_seconds, tracking_state)
         if tracking_state is not TrackingState.GOOD:
@@ -101,6 +141,7 @@ class GuidedProtocol:
         return self._update_running(now_seconds)
 
     def _pause_running(self, now_seconds: float) -> ProtocolSnapshot:
+        """Freeze protocol progression when tracking is lost."""
         if self._pause_started_at is None:
             frozen = self._update_running(now_seconds)
             if frozen.completed:
@@ -117,6 +158,7 @@ class GuidedProtocol:
     def _update_preparation(
         self, now_seconds: float, tracking_state: TrackingState
     ) -> ProtocolSnapshot:
+        """Handle initial tracking acquisition and stability countdown before starting."""
         if tracking_state is not TrackingState.GOOD:
             self._stable_since = None
             self._countdown_since = None
@@ -169,6 +211,7 @@ class GuidedProtocol:
         return self._update_running(now_seconds)
 
     def _update_running(self, now_seconds: float) -> ProtocolSnapshot:
+        """Advance through active segments (transition, acquisition, measurement)."""
         assert self._protocol_started_at is not None
         assert self._segment_started_at is not None
         while self._segment_index < len(self._segments):
@@ -201,6 +244,7 @@ class GuidedProtocol:
         elapsed: float,
         now_seconds: float,
     ) -> ProtocolSnapshot:
+        """Create a snapshot corresponding to the current point within an active segment."""
         if elapsed < self._config.transition_seconds:
             stage = MeasurementStage.TRANSITION
             remaining = self._config.transition_seconds - elapsed
@@ -232,6 +276,7 @@ class GuidedProtocol:
         )
 
     def _phase_remaining_seconds(self, current_segment: ProtocolSegment, elapsed: float) -> float:
+        """Estimate remaining time for the current macro-phase across subsequent segments."""
         current_total = (
             self._config.transition_seconds
             + self._config.acquisition_seconds
@@ -250,6 +295,7 @@ class GuidedProtocol:
 
     @staticmethod
     def _measurement_instruction(phase: ExperimentPhase) -> str:
+        """Return Spanish instructional text for the given measurement phase."""
         if phase is ExperimentPhase.CENTER_STABILITY:
             return "Mirá el punto central. Cabeza quieta; parpadeá normalmente."
         if phase is ExperimentPhase.HEAD_MOVEMENT:

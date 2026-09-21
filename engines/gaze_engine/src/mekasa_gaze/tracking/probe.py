@@ -8,6 +8,21 @@ from mekasa_gaze.tracking.camera import CameraUnavailableError, OpenCVCameraProv
 
 
 def probe(max_index: int, backend: str) -> list[dict[str, object]]:
+    """Enumerate and probe available local video capture devices without persisting frames.
+
+    Responsibility:
+        Iterates over camera indices [0, max_index], attempts to open each device with OpenCV,
+        captures a single test frame to measure capture latency and true resolution, and returns
+        structured hardware diagnostics.
+
+    Args:
+        max_index: Upper bound on camera device index to probe.
+        backend: Backend driver identifier ('auto', 'msmf', 'dshow').
+
+    Returns:
+        list[dict[str, object]]: List of diagnostic dictionaries for each successfully
+            opened camera device.
+    """
     cameras: list[dict[str, object]] = []
     for index in range(max_index + 1):
         provider = OpenCVCameraProvider(
@@ -33,6 +48,14 @@ def probe(max_index: int, backend: str) -> list[dict[str, object]]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Execute the command-line interface to probe local camera devices.
+
+    Args:
+        argv: Optional list of command-line argument strings (defaults to sys.argv[1:]).
+
+    Returns:
+        int: 0 if at least one operational camera is detected; 2 otherwise.
+    """
     parser = argparse.ArgumentParser(description="Probe local cameras without saving frames")
     parser.add_argument("--max-index", type=int, default=4)
     parser.add_argument("--backend", choices=("auto", "msmf", "dshow"), default="auto")

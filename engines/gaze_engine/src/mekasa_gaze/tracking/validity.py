@@ -27,6 +27,13 @@ _REQUIRED_FEATURES = (
 
 @dataclass(frozen=True, slots=True)
 class ValidityAssessment:
+    """Sample-level gaze data qualification result.
+
+    Responsibility:
+        Encapsulates consolidated gaze validity classification, individual eye states
+        (OPEN, CLOSED, INVALID), and a human-readable diagnostic rationale string.
+    """
+
     gaze_validity: GazeValidity
     left_eye_state: EyeState
     right_eye_state: EyeState
@@ -36,6 +43,20 @@ class ValidityAssessment:
 def assess_gaze_validity(
     observation: FeatureObservation, config: GuidedValidationConfig
 ) -> ValidityAssessment:
+    """Evaluate gaze data validity for a single feature observation against clinical rules.
+
+    Responsibility:
+        Applies hierarchical validation rules: checks face tracking quality, verifies presence
+        and finiteness of required features, applies EAR closure thresholds and vertical span
+        minima per eye, and validates iris coordinate plausibility bounds.
+
+    Args:
+        observation: Instantaneous facial feature observation.
+        config: Validation configuration specifying EAR thresholds and iris limits.
+
+    Returns:
+        ValidityAssessment: Consolidated GazeValidity category, per-eye states, and reason.
+    """
     if observation.tracking_state is not TrackingState.GOOD:
         return ValidityAssessment(
             GazeValidity.TRACKING_INVALID,
@@ -100,6 +121,7 @@ def _eye_state(
     vertical_span: float,
     config: GuidedValidationConfig,
 ) -> EyeState:
+    """Classify individual eye state using EAR threshold and minimum vertical span."""
     if aspect_ratio < config.eye_closed_ear_threshold:
         return EyeState.CLOSED
     if vertical_span < config.min_eye_vertical_span:
@@ -113,6 +135,7 @@ def _iris_adjusted_state(
     eye: str,
     config: GuidedValidationConfig,
 ) -> EyeState:
+    """Invalidate eye state if normalized iris coordinates exceed physiological limits."""
     if state is not EyeState.OPEN:
         return state
     iris_x = features[f"{eye}_iris_x"]
@@ -127,7 +150,22 @@ def _iris_adjusted_state(
 def mark_possible_blinks(
     observations: list[GuidedObservation], max_blink_seconds: float
 ) -> tuple[list[GuidedObservation], int]:
-    """Relabel short, bounded eye-closure runs as possible blinks."""
+    """Relabel short, bounded runs of eye-closure observations as physiological blinks.
+
+    Responsibility:
+        Scans chronological observation sequences for consecutive runs of eye-closure
+        bounded immediately before and after by VALID gaze frames. Runs whose duration
+        does not exceed `max_blink_seconds` are marked with GazeValidity.BLINK.
+
+    Args:
+        observations: Sequential list of recorded guided observations.
+        max_blink_seconds: Maximum duration threshold (in seconds) to qualify as a blink.
+
+    Returns:
+        tuple[list[GuidedObservation], int]:
+            - Updated list of observations with blink labels applied.
+            - Total count of identified blink run events.
+    """
     output = list(observations)
     events = 0
     index = 0

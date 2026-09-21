@@ -53,6 +53,25 @@ def run_controlled_region_validation(
     calibration_sha256: str,
     fullscreen: bool | None = None,
 ) -> dict[str, Any]:
+    """Execute the empirical four-region prompt/response validation experiment.
+
+    Responsibility:
+        Runs randomized region prompt blocks, collects dwell selections, fits session-local
+        affine ridge correction on practice blocks, records selection accuracy and latency
+        metrics, and writes the validation report to disk.
+
+    Args:
+        guided_config: UI layout and display configuration.
+        calibration_config: Calibration model settings and smoothing factors.
+        interaction_config: Dwell selection protocol timing and block parameters.
+        calibration_model: Personal ridge regression calibration model.
+        face_model_path: Path to face landmarker task binary.
+        calibration_sha256: SHA-256 fingerprint of the calibration model.
+        fullscreen: Optional fullscreen mode toggle.
+
+    Returns:
+        dict[str, Any]: Compiled controlled region validation report.
+    """
     use_fullscreen = guided_config.fullscreen if fullscreen is None else fullscreen
     camera = OpenCVCameraProvider(
         index=guided_config.camera_index,
@@ -592,6 +611,14 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Execute the command-line entry point for controlled region validation.
+
+    Args:
+        argv: Optional list of command-line argument strings (defaults to sys.argv[1:]).
+
+    Returns:
+        int: 0 on completed session, 2 on initialization error, 130 on SIGINT.
+    """
     args = _parser().parse_args(argv)
     try:
         report = run_controlled_region_validation(

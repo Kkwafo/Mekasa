@@ -4,14 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from mekasa_gaze.config import CalibrationConfig, GuidedValidationConfig, InteractionConfig
-from mekasa_gaze.controlled_region_validation import _build_report
-from mekasa_gaze.interaction import RegionName
-from mekasa_gaze.region_protocol import (
+from mekasa_gaze.core.config import CalibrationConfig, GuidedValidationConfig, InteractionConfig
+from mekasa_gaze.core.domain import RegionName
+from mekasa_gaze.core.region_protocol import (
     ControlledRegionProtocol,
     RegionTrialOutcome,
     RegionTrialStage,
 )
+from mekasa_gaze.runners.controlled_region_validation import _build_report
 
 
 def _config() -> InteractionConfig:

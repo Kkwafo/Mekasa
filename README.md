@@ -6,7 +6,7 @@
 [![Linter: Ruff](https://img.shields.io/badge/code%20style-ruff-black.svg)](https://docs.astral.sh/ruff/)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
-**Mekasa** es una plataforma abierta y de procesamiento local (*edge / on-device*) de **Comunicación Aumentativa y Alternativa (CAA)** basada en seguimiento ocular (*eye-tracking*). El proyecto está diseñado para restituir la capacidad de comunicación a personas con compromiso motor severo o pérdida del habla adquirida, particularmente como secuela de accidentes cerebrovasculares (**ACV / ictus**), traumatismos craneoencefálicos o enfermedades neurodegenerativas (ELA, parálisis cerebral).
+**Mekasa** es un prototipo técnico abierto y de procesamiento local (*edge / on-device*) que investiga interacción de **Comunicación Aumentativa y Alternativa (CAA)** mediante seguimiento ocular (*eye-tracking*). Su objetivo es explorar una vía de comunicación accesible para personas con compromiso motor o del habla; no afirma restituir capacidades ni sustituye una evaluación profesional.
 
 ---
 
@@ -30,9 +30,9 @@ La pérdida súbita del lenguaje oral tras un ACV sitúa al paciente en un estad
 
 Mekasa nace bajo un conjunto de **principios irrenunciables**:
 
-* **Hardware Accesible y Convencional:** Operación fluida utilizando cualquier cámara web estándar (RGB integrada o USB) de 30 FPS a 640x480 o 720p, eliminando barreras económicas de acceso.
+* **Hardware Convencional en Evaluación:** El V0 se prueba con cámaras RGB integradas o USB a 640x480 y 30 FPS. La compatibilidad y precisión dependen de cámara, iluminación, distancia, movimiento, lentes y características individuales.
 * **Procesamiento 100% On-Device (Local-First):** Toda la inferencia de visión computacional, filtrado geométrico, regresión y síntesis de voz opera localmente en la máquina del usuario.
-* **Privacidad Absoluta por Diseño:** Ningún fotograma de video, imagen del rostro ni coordenada biométrica se almacena en disco de forma persistente ni se transmite por red. No requiere conexión a Internet ni cuentas de usuario.
+* **Privacidad Local por Diseño:** No se guardan ni se suben fotogramas, video o landmarks faciales crudos. Los modelos personales derivados y reportes técnicos sí se almacenan localmente para poder calibrar y medir el sistema.
 * **Mitigación Rigurosa del Efecto Midas (*Midas Touch*):** La mirada es un sentido exploratorio primario; mirar un elemento no equivale a desear activarlo. La interacción requiere protocolos deterministas de permanencia (*dwell-time*), histéresis espacial y enfriamiento.
 * **Arquitectura Desacoplada para Asistencia Cognitiva:** Una clara separación de responsabilidades entre el hardware de captura, los algoritmos de mirada, la interacción por regiones y la futura capa de predicción semántica mediante Modelos de Lenguaje Locales (SLM / LLM).
 
@@ -40,7 +40,7 @@ Mekasa nace bajo un conjunto de **principios irrenunciables**:
 
 ## 2. Arquitectura de Software (Clean & SOLID)
 
-El sistema sigue los principios de **Clean Architecture** y diseño **SOLID**, organizando el motor en capas concéntricas con inversión de dependencias estricta:
+El sistema aplica **SOLID de forma pragmática**: dominio y contratos en `core`, visión en `tracking`, presentación en `ui`, infraestructura en `services` y cinco flujos ejecutables en `runners`. No se mantienen capas vacías ni módulos espejo.
 
 ```
 +-----------------------------------------------------------------------+
@@ -85,7 +85,7 @@ OpenCVCameraProvider [tracking/camera.py]
 FaceFeatureExtractor [tracking/landmarker.py] (MediaPipe Face Mesh 478 pts)
        │
        ├─► Geometry [tracking/geometry.py] (EAR, Vectorial Iris Proj, Euler Head Pose)
-       ├─► Validity [tracking/validity.py] (Clinical sample qualification rules)
+       ├─► Validity [tracking/validity.py] (Experimental signal-quality rules)
        └─► Placement [tracking/placement.py] (Distance & Bounding Box Assessment)
        │
        ▼ (FeatureObservation)
@@ -119,7 +119,7 @@ Mekasa/
 │       ├── src/
 │       │   └── mekasa_gaze/
 │       │       ├── core/                   # CAPA DOMAIN / CORE: Contratos e interfaces base
-│       │       │   ├── config.py           # Modelos de configuración inmutables (Pydantic/Dataclasses)
+│       │       │   ├── config.py           # Configuración inmutable mediante dataclasses
 │       │       │   ├── domain.py           # Entidades de dominio, estados de mirada y enums
 │       │       │   ├── interfaces.py       # Protocolos abstractos (CameraProvider, FeatureExtractor, etc.)
 │       │       │   ├── protocol.py         # Máquina de estados del protocolo guiado de 9 puntos
@@ -147,7 +147,8 @@ Mekasa/
 │       │       │   ├── live_evaluation.py  # Evaluación continua de mirada en tiempo real
 │       │       │   ├── region_evaluation.py# Evaluación libre de 4 cuadrantes con dwell
 │       │       │   └── controlled_region_validation.py # Validación empírica de regiones controlada
-│       │       └── *.py                    # Shims de compatibilidad hacia atrás hacia submódulos
+│       │       ├── __init__.py              # API pública mínima del paquete
+│       │       └── __main__.py              # Entrada predeterminada del motor
 │       └── tests/                          # Suite exhaustiva de pruebas unitarias (56 tests)
 ├── models/                                 # Modelos de aprendizaje automático (descargados localmente)
 ├── protocols/                              # Definiciones de transporte neutral (Protobuf futuro)
@@ -193,6 +194,10 @@ Mekasa/
    uv run mekasa-probe-cameras
    ```
 
+### Interfaz accesible por mirada
+
+La pantalla de selección utiliza todo el ancho disponible y oculta la cámara y la telemetría técnica para evitar distracciones. Cada región tiene separación amplia, bordes redondeados, sombra suave y un crecimiento progresivo durante la fijación. El progreso de permanencia se representa simultáneamente dentro de la tarjeta, alrededor del punto de mirada y en una barra inferior. La calibración conserva su panel técnico porque allí sí es necesario diagnosticar distancia, tracking y calidad de señal.
+
 ---
 
 ## 5. Guía de Ejecución de Pruebas y Linters
@@ -200,7 +205,7 @@ Mekasa/
 El proyecto mantiene una disciplina estricta de calidad, cobertura y tipado estático:
 
 ### Ejecución de Pruebas Unitarias
-Ejecuta la suite completa de pruebas unitarias (56 pruebas que validan geometría, protocolos, calibración, interactores y builders):
+Ejecuta la suite completa de pruebas unitarias, que valida geometría, protocolos, calibración, interacción, reportes y renderizado:
 ```powershell
 uv run pytest
 ```
@@ -268,8 +273,8 @@ uv run mekasa-controlled-region-validation
   $$x_{\text{norm}} = \frac{(\mathbf{iris} - \mathbf{start}) \cdot (\mathbf{end} - \mathbf{start})}{\|\mathbf{end} - \mathbf{start}\|^2}$$
 * **Pose Cefálica (Euler):** A partir de la matriz de transformación 4x4 provista por MediaPipe, se extraen los ángulos de orientación de la cabeza en grados (guiñada/*yaw*, cabeceo/*pitch*, balanceo/*roll*).
 
-### Calificación Clínica de la Señal
-Cada fotograma se clasifica de forma determinista mediante reglas jerárquicas:
+### Calificación Técnica de la Señal
+Cada fotograma se clasifica de forma determinista mediante heurísticas experimentales; no son umbrales clínicos:
 1. `TRACKING_LOST`: Si la cantidad de rostros detectados no es exactamente 1.
 2. `TRACKING_UNCERTAIN`: Si la distancia o geometría de los landmarks es aberrante o inestable.
 3. `GAZE_VALID`: Ambos ojos abiertos (EAR por encima del umbral) con iris en rango fisiológico.
@@ -315,7 +320,7 @@ Mekasa está estructurado arquitectónicamente para incorporar en sus próximas 
 
 1. **Modelos Pequeños Cuantizados (SLM On-Device):**
    * Integración de modelos de 1B a 3B parámetros (ej. Gemma-2B, Llama-3.2-1B o SmolLM2) ejecutados en cuantización de 4 bits (`Q4_K_M`) a través de un motor de bajo consumo en C++/Python (como `llama.cpp` o `MLC-LLM`).
-   * Cero consumo de ancho de banda y latencia de primer token menor a $100\text{ ms}$ en CPUs modernas.
+   * Ejecución local sin enviar conversaciones a servicios externos. Rendimiento y latencia deberán medirse en el hardware objetivo antes de elegir un modelo.
 
 2. **Minimización del Esfuerzo Motor por Intención (*Effort Per Intent*):**
    * En pacientes con fatiga ocular severa post-ACV, cada selección de mirada cuesta energía física.

@@ -3,7 +3,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mekasa_gaze.geometry import euler_from_transform, eye_aspect_ratio, normalized_iris_position
+from mekasa_gaze.tracking.geometry import (
+    euler_from_transform,
+    eye_aspect_ratio,
+    normalized_iris_position,
+)
 
 
 def test_eye_aspect_ratio_uses_scale_invariant_geometry() -> None:

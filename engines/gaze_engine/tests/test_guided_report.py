@@ -7,9 +7,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from mekasa_gaze.camera import CameraFrame, CameraSettings
-from mekasa_gaze.config import GuidedValidationConfig
-from mekasa_gaze.domain import (
+from mekasa_gaze.core.config import GuidedValidationConfig
+from mekasa_gaze.core.domain import (
     ExperimentPhase,
     FeatureObservation,
     GazeValidity,
@@ -20,12 +19,13 @@ from mekasa_gaze.domain import (
     TargetName,
     TrackingState,
 )
-from mekasa_gaze.guided_report import (
+from mekasa_gaze.services.reporting import (
     GuidedReportBuilder,
     summarize_guided_observations,
     write_guided_report,
 )
-from mekasa_gaze.validity import assess_gaze_validity
+from mekasa_gaze.tracking.camera import CameraFrame, CameraSettings
+from mekasa_gaze.tracking.validity import assess_gaze_validity
 
 
 def _config() -> GuidedValidationConfig:

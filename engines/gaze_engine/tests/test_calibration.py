@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from mekasa_gaze.calibration import CalibrationModel, calibrate_from_report
-from mekasa_gaze.config import CalibrationConfig
-from mekasa_gaze.domain import TargetName
+from mekasa_gaze.core.config import CalibrationConfig
+from mekasa_gaze.core.domain import TargetName
+from mekasa_gaze.tracking.calibration import CalibrationModel, calibrate_from_report
 
 
 def _config() -> CalibrationConfig:

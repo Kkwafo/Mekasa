@@ -29,14 +29,20 @@ from mekasa_gaze.tracking.interaction import SelectionUpdate, region_bounds
 from mekasa_gaze.tracking.placement import PlacementAssessment, PlacementState
 from mekasa_gaze.tracking.validity import ValidityAssessment
 
-_BACKGROUND = (24, 27, 31)
-_PANEL = (35, 39, 45)
-_TEXT = (235, 238, 242)
-_MUTED = (165, 172, 181)
-_ACCENT = (245, 190, 55)
-_GOOD = (80, 205, 110)
-_WARN = (40, 180, 245)
-_BAD = (70, 80, 225)
+_BACKGROUND = (29, 34, 36)
+_PANEL = (43, 50, 53)
+_SURFACE = (52, 62, 65)
+_SURFACE_ACTIVE = (67, 79, 78)
+_SURFACE_SELECTED = (58, 87, 70)
+_SHADOW = (20, 24, 25)
+_TEXT = (239, 241, 239)
+_MUTED = (158, 171, 171)
+_ACCENT = (199, 185, 116)
+_GOOD = (142, 191, 119)
+_WARN = (92, 184, 232)
+_BAD = (116, 123, 219)
+_REGION_HEADER_HEIGHT = 84
+_REGION_FOOTER_HEIGHT = 84
 
 
 def render_loading_screen(
@@ -174,26 +180,16 @@ def render_live_evaluation_screen(
     Returns:
         npt.NDArray[np.uint8]: Rendered full canvas matrix.
     """
-    snapshot = ProtocolSnapshot(
-        phase=ExperimentPhase.PREPARATION,
-        stage=MeasurementStage.WAITING_TRACKING,
-        target=None,
-        instruction="",
-        stage_remaining_seconds=None,
-        protocol_elapsed_seconds=0.0,
+    # The communication board deliberately hides camera/debug telemetry. That panel is
+    # useful during calibration, but reduces target size and visually competes with gaze
+    # choices during dwell interaction.
+    _ = camera_bgr, feature_observation, assessment, rolling_fps
+    canvas = np.full(
+        (config.canvas_height, config.canvas_width, 3),
+        _BACKGROUND,
+        dtype=np.uint8,
     )
-    canvas = render_guided_screen(
-        camera_bgr,
-        feature_observation,
-        assessment,
-        snapshot,
-        config,
-        rolling_fps,
-        placement=placement,
-    )
-    debug_width = round(config.canvas_width * config.debug_panel_fraction)
-    test_width = config.canvas_width - debug_width
-    cv2.rectangle(canvas, (0, 0), (test_width - 1, config.canvas_height - 1), _BACKGROUND, -1)
+    test_width = config.canvas_width
     _text(canvas, "EVALUACION EN VIVO — EXPERIMENTAL", (36, 48), 0.76, _MUTED, 2)
     _text(
         canvas,
@@ -290,8 +286,7 @@ def render_region_selection_screen(
         rolling_fps,
         placement=placement,
     )
-    debug_width = round(config.canvas_width * config.debug_panel_fraction)
-    test_width = config.canvas_width - debug_width
+    test_width = config.canvas_width
     cv2.rectangle(canvas, (0, 0), (test_width - 1, config.canvas_height - 1), _BACKGROUND, -1)
 
     labels = {
@@ -300,8 +295,8 @@ def render_region_selection_screen(
         RegionName.BOTTOM_LEFT: "REGION 3",
         RegionName.BOTTOM_RIGHT: "REGION 4",
     }
-    header_height = 72
-    footer_height = 64
+    header_height = _REGION_HEADER_HEIGHT
+    footer_height = _REGION_FOOTER_HEIGHT
     region_height = config.canvas_height - header_height - footer_height
     for region in RegionName:
         left, top, right, bottom = region_bounds(region)
@@ -311,29 +306,83 @@ def render_region_selection_screen(
         y2 = header_height + round(bottom * region_height) - 1
         active = selection.candidate is region
         selected = selection.selected is region
-        fill = (42, 57, 64) if active else _PANEL
+        eased_progress = _smoothstep(selection.dwell_progress) if active else 0.0
+        inset = 18 - round(7 * eased_progress)
+        card = (x1 + inset, y1 + inset, x2 - inset, y2 - inset)
+        fill = _mix_color(_SURFACE, _SURFACE_ACTIVE, eased_progress)
         if selected:
-            fill = (38, 78, 50)
+            fill = _SURFACE_SELECTED
         border = _GOOD if selected else _ACCENT if active else _MUTED
-        cv2.rectangle(canvas, (x1 + 8, y1 + 8), (x2 - 8, y2 - 8), fill, -1)
-        cv2.rectangle(canvas, (x1 + 8, y1 + 8), (x2 - 8, y2 - 8), border, 3)
+        border_width = 4 if selected else 3 if active else 1
+        _draw_card(canvas, card, fill, border, border_width)
+
+        if active:
+            progress_left = card[0] + 28
+            progress_right = card[2] - 28
+            progress_y = card[3] - 24
+            _filled_rounded_rectangle(
+                canvas,
+                (progress_left, progress_y),
+                (progress_right, progress_y + 8),
+                _PANEL,
+                4,
+            )
+            filled_right = progress_left + round(
+                (progress_right - progress_left) * selection.dwell_progress
+            )
+            if filled_right > progress_left:
+                _filled_rounded_rectangle(
+                    canvas,
+                    (progress_left, progress_y),
+                    (filled_right, progress_y + 8),
+                    _ACCENT,
+                    4,
+                )
         if show_region_labels:
             label = labels[region]
-            size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.82, 2)[0]
+            scale = 0.94 if active else 0.86
+            thickness = 3 if active or selected else 2
+            size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)[0]
             _text(
                 canvas,
                 label,
-                ((x1 + x2 - size[0]) // 2, (y1 + y2) // 2),
-                0.82,
-                border,
-                2,
+                ((card[0] + card[2] - size[0]) // 2, (card[1] + card[3]) // 2),
+                scale,
+                _TEXT if active or selected else _MUTED,
+                thickness,
             )
+            if active:
+                _centered_text_in_bounds(
+                    canvas,
+                    "MANTENE LA MIRADA",
+                    card,
+                    (card[1] + card[3]) // 2 + 42,
+                    0.44,
+                    _ACCENT,
+                    1,
+                )
 
-    _text(canvas, "EXPERIMENTO 003 — SELECCION POR PERMANENCIA", (24, 42), 0.68, _TEXT, 2)
+    _text(canvas, "MEKASA", (24, 39), 0.78, _TEXT, 2)
+    _text(canvas, "SELECCION POR MIRADA", (24, 66), 0.48, _MUTED, 1)
     if prediction is not None:
         x = round(min(1.0, max(0.0, prediction[0])) * (test_width - 1))
         y = header_height + round(min(1.0, max(0.0, prediction[1])) * max(1, region_height - 1))
-        cv2.circle(canvas, (x, y), 14, _ACCENT, 2, cv2.LINE_AA)
+        cursor_radius = 14 + round(7 * _smoothstep(selection.dwell_progress))
+        cv2.circle(canvas, (x, y), cursor_radius, _SHADOW, -1, cv2.LINE_AA)
+        cv2.circle(canvas, (x, y), 7, _TEXT, -1, cv2.LINE_AA)
+        cv2.circle(canvas, (x, y), cursor_radius, _ACCENT, 2, cv2.LINE_AA)
+        if selection.candidate is not None and selection.dwell_progress > 0.0:
+            cv2.ellipse(
+                canvas,
+                (x, y),
+                (cursor_radius + 7, cursor_radius + 7),
+                -90,
+                0,
+                360 * selection.dwell_progress,
+                _ACCENT,
+                5,
+                cv2.LINE_AA,
+            )
 
     if not placement.ready:
         status = placement.instruction
@@ -350,15 +399,27 @@ def render_region_selection_screen(
     else:
         status = "MIRA UNA REGION PARA INICIAR"
         color = _TEXT
-    _text(canvas, status, (24, config.canvas_height - 26), 0.56, color, 2)
-    progress_width = round((test_width - 48) * selection.dwell_progress)
-    cv2.rectangle(
+    footer_top = config.canvas_height - footer_height
+    _text(canvas, status, (24, footer_top + 35), 0.57, color, 2)
+    progress_left = 24
+    progress_right = test_width - 24
+    progress_top = config.canvas_height - 24
+    _filled_rounded_rectangle(
         canvas,
-        (24, config.canvas_height - 15),
-        (24 + progress_width, config.canvas_height - 8),
-        _ACCENT,
-        -1,
+        (progress_left, progress_top),
+        (progress_right, progress_top + 9),
+        _PANEL,
+        5,
     )
+    progress_width = round((test_width - 48) * selection.dwell_progress)
+    if progress_width > 0:
+        _filled_rounded_rectangle(
+            canvas,
+            (progress_left, progress_top),
+            (progress_left + progress_width, progress_top + 9),
+            _ACCENT,
+            5,
+        )
     return canvas
 
 
@@ -406,8 +467,8 @@ def render_controlled_region_screen(
     )
     debug_width = round(config.canvas_width * config.debug_panel_fraction)
     test_width = config.canvas_width - debug_width
-    header_height = 72
-    footer_height = 64
+    header_height = _REGION_HEADER_HEIGHT
+    footer_height = _REGION_FOOTER_HEIGHT
     region_height = config.canvas_height - header_height - footer_height
     cv2.rectangle(canvas, (0, 0), (test_width - 1, header_height - 1), _BACKGROUND, -1)
     cv2.rectangle(
@@ -443,6 +504,104 @@ def render_controlled_region_screen(
             1,
         )
     return canvas
+
+
+def _draw_card(
+    canvas: npt.NDArray[np.uint8],
+    bounds: tuple[int, int, int, int],
+    fill: tuple[int, int, int],
+    border: tuple[int, int, int],
+    border_width: int,
+) -> None:
+    left, top, right, bottom = bounds
+    shadow_offset = 5
+    radius = 22
+    _filled_rounded_rectangle(
+        canvas,
+        (left + shadow_offset, top + shadow_offset),
+        (right + shadow_offset, bottom + shadow_offset),
+        _SHADOW,
+        radius,
+    )
+    _filled_rounded_rectangle(canvas, (left, top), (right, bottom), border, radius)
+    _filled_rounded_rectangle(
+        canvas,
+        (left + border_width, top + border_width),
+        (right - border_width, bottom - border_width),
+        fill,
+        max(1, radius - border_width),
+    )
+
+
+def _filled_rounded_rectangle(
+    canvas: npt.NDArray[np.uint8],
+    top_left: tuple[int, int],
+    bottom_right: tuple[int, int],
+    color: tuple[int, int, int],
+    radius: int,
+) -> None:
+    left, top = top_left
+    right, bottom = bottom_right
+    if right <= left or bottom <= top:
+        return
+    safe_radius = max(0, min(radius, (right - left) // 2, (bottom - top) // 2))
+    if safe_radius == 0:
+        cv2.rectangle(canvas, top_left, bottom_right, color, -1)
+        return
+    cv2.rectangle(
+        canvas,
+        (left + safe_radius, top),
+        (right - safe_radius, bottom),
+        color,
+        -1,
+    )
+    cv2.rectangle(
+        canvas,
+        (left, top + safe_radius),
+        (right, bottom - safe_radius),
+        color,
+        -1,
+    )
+    for center in (
+        (left + safe_radius, top + safe_radius),
+        (right - safe_radius, top + safe_radius),
+        (left + safe_radius, bottom - safe_radius),
+        (right - safe_radius, bottom - safe_radius),
+    ):
+        cv2.circle(canvas, center, safe_radius, color, -1, cv2.LINE_AA)
+
+
+def _centered_text_in_bounds(
+    canvas: npt.NDArray[np.uint8],
+    text: str,
+    bounds: tuple[int, int, int, int],
+    y: int,
+    scale: float,
+    color: tuple[int, int, int],
+    thickness: int,
+) -> None:
+    rendered = _ascii(text)
+    width = cv2.getTextSize(rendered, cv2.FONT_HERSHEY_SIMPLEX, scale, thickness)[0][0]
+    left, _, right, _ = bounds
+    _text(canvas, rendered, ((left + right - width) // 2, y), scale, color, thickness)
+
+
+def _smoothstep(value: float) -> float:
+    clamped = min(1.0, max(0.0, value))
+    return clamped * clamped * (3.0 - 2.0 * clamped)
+
+
+def _mix_color(
+    start: tuple[int, int, int],
+    end: tuple[int, int, int],
+    amount: float,
+) -> tuple[int, int, int]:
+    clamped = min(1.0, max(0.0, amount))
+    return (
+        round(start[0] + (end[0] - start[0]) * clamped),
+        round(start[1] + (end[1] - start[1]) * clamped),
+        round(start[2] + (end[2] - start[2]) * clamped),
+    )
 
 
 def _controlled_region_status(

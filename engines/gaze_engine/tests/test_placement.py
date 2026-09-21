@@ -1,7 +1,11 @@
 from __future__ import annotations
 
-from mekasa_gaze.domain import FeatureObservation, TrackingState
-from mekasa_gaze.placement import PlacementState, assess_face_placement, placement_tracking_state
+from mekasa_gaze.core.domain import FeatureObservation, TrackingState
+from mekasa_gaze.tracking.placement import (
+    PlacementState,
+    assess_face_placement,
+    placement_tracking_state,
+)
 
 
 def _observation(width: float, state: TrackingState = TrackingState.GOOD) -> FeatureObservation:

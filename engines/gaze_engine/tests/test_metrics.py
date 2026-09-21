@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from mekasa_gaze.camera import CameraFrame, CameraSettings
-from mekasa_gaze.domain import FeatureObservation, TrackingState
-from mekasa_gaze.metrics import ExperimentMetrics
+from mekasa_gaze.core.domain import FeatureObservation, TrackingState
+from mekasa_gaze.services.metrics import ExperimentMetrics
+from mekasa_gaze.tracking.camera import CameraFrame, CameraSettings
 
 
 def _frame(sequence: int) -> CameraFrame:

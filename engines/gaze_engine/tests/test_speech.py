@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from mekasa_gaze.domain import (
+from mekasa_gaze.core.domain import (
     ExperimentPhase,
     MeasurementStage,
     ProtocolSnapshot,
     TargetName,
     VisualTarget,
 )
-from mekasa_gaze.placement import PlacementAssessment, PlacementState
-from mekasa_gaze.speech import AudioInstructionController
+from mekasa_gaze.services.speech import AudioInstructionController
+from mekasa_gaze.tracking.placement import PlacementAssessment, PlacementState
 
 
 @dataclass

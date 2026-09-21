@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from mekasa_gaze.live_evaluation import PredictionSmoother
+from mekasa_gaze.runners.live_evaluation import PredictionSmoother
 
 
 def test_prediction_smoother_resets_after_invalid_frame() -> None:

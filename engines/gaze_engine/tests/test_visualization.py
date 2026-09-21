@@ -5,29 +5,34 @@ from pathlib import Path
 
 import numpy as np
 
-from mekasa_gaze.config import GuidedValidationConfig
-from mekasa_gaze.domain import (
+from mekasa_gaze.core.config import GuidedValidationConfig
+from mekasa_gaze.core.domain import (
     ExperimentPhase,
     FeatureObservation,
     HeadPose,
     MeasurementStage,
     ProtocolSnapshot,
+    RegionName,
     TargetName,
     TrackingState,
 )
-from mekasa_gaze.guided_experiment import _rolling_fps
-from mekasa_gaze.validity import assess_gaze_validity
-from mekasa_gaze.visualization import render_guided_screen, render_loading_screen
+from mekasa_gaze.runners.guided_experiment import _rolling_fps
+from mekasa_gaze.tracking.interaction import SelectionUpdate
+from mekasa_gaze.tracking.placement import PlacementAssessment, PlacementState
+from mekasa_gaze.tracking.validity import assess_gaze_validity
+from mekasa_gaze.ui.visualization import (
+    render_guided_screen,
+    render_loading_screen,
+    render_region_selection_screen,
+)
 
 
 def _config() -> GuidedValidationConfig:
     return GuidedValidationConfig.load(Path("config/experiment-001.toml"))
 
 
-def test_guided_screen_renders_target_and_debug_without_mutating_camera_frame() -> None:
-    config = _config()
-    camera_frame = np.zeros((480, 640, 3), dtype=np.uint8)
-    observation = FeatureObservation(
+def _observation() -> FeatureObservation:
+    return FeatureObservation(
         frame_sequence=1,
         timestamp_ns=1,
         tracking_state=TrackingState.GOOD,
@@ -47,6 +52,12 @@ def test_guided_screen_renders_target_and_debug_without_mutating_camera_frame() 
         debug_right_iris_points=((0.56, 0.4),),
         debug_face_box=(0.25, 0.15, 0.75, 0.85),
     )
+
+
+def test_guided_screen_renders_target_and_debug_without_mutating_camera_frame() -> None:
+    config = _config()
+    camera_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    observation = _observation()
     snapshot = ProtocolSnapshot(
         phase=ExperimentPhase.GAZE_DISCRIMINATION,
         stage=MeasurementStage.MEASUREMENT,
@@ -83,3 +94,38 @@ def test_loading_screen_has_requested_size_and_visible_content() -> None:
 
     assert output.shape == (720, 1280, 3)
     assert np.count_nonzero(output) > 0
+
+
+def test_region_screen_animates_dwell_progress_without_mutating_camera_frame() -> None:
+    config = _config()
+    camera_frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    observation = _observation()
+    assessment = assess_gaze_validity(observation, config)
+    placement = PlacementAssessment(PlacementState.READY, "DISTANCIA CORRECTA", 0.3)
+    idle = SelectionUpdate(None, 0.0, None, False, 0.0, True)
+    dwelling = SelectionUpdate(RegionName.TOP_LEFT, 0.65, None, False, 0.0, True)
+
+    idle_frame = render_region_selection_screen(
+        camera_frame,
+        observation,
+        assessment,
+        (0.25, 0.25),
+        idle,
+        config,
+        30.0,
+        placement,
+    )
+    dwelling_frame = render_region_selection_screen(
+        camera_frame,
+        observation,
+        assessment,
+        (0.25, 0.25),
+        dwelling,
+        config,
+        30.0,
+        placement,
+    )
+
+    assert idle_frame.shape == (config.canvas_height, config.canvas_width, 3)
+    assert np.count_nonzero(idle_frame != dwelling_frame) > 1_000
+    assert np.count_nonzero(camera_frame) == 0

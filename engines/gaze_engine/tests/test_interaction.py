@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from mekasa_gaze.interaction import DwellSelector, RegionName, region_at
+from mekasa_gaze.core.domain import RegionName
+from mekasa_gaze.tracking.interaction import DwellSelector, region_at
 
 
 def _selector() -> DwellSelector:

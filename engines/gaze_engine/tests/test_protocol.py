@@ -4,14 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from mekasa_gaze.config import GuidedValidationConfig
-from mekasa_gaze.domain import (
+from mekasa_gaze.core.config import GuidedValidationConfig
+from mekasa_gaze.core.domain import (
     ExperimentPhase,
     MeasurementStage,
     TargetName,
     TrackingState,
 )
-from mekasa_gaze.protocol import GuidedProtocol
+from mekasa_gaze.core.protocol import GuidedProtocol
 
 
 def _protocol() -> GuidedProtocol:

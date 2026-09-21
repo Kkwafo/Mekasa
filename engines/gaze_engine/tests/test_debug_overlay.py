@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from mekasa_gaze.domain import FeatureObservation, HeadPose, TrackingState
-from mekasa_gaze.landmarker import draw_debug_overlay
+from mekasa_gaze.core.domain import FeatureObservation, HeadPose, TrackingState
+from mekasa_gaze.tracking.landmarker import draw_debug_overlay
 
 
 def test_debug_overlay_draws_eye_point_and_status_without_mutating_frame() -> None:

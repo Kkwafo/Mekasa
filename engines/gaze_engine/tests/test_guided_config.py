@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from mekasa_gaze.config import GuidedValidationConfig
-from mekasa_gaze.domain import TargetName
+from mekasa_gaze.core.config import GuidedValidationConfig
+from mekasa_gaze.core.domain import TargetName
 
 
 def _config() -> GuidedValidationConfig:

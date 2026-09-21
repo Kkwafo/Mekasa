@@ -31,7 +31,7 @@ class PlacementAssessment:
 
     @property
     def ready(self) -> bool:
-        """Indicate whether participant position is within clinical calibration bounds."""
+        """Indicate whether participant position is within experimental calibration bounds."""
         return self.state is PlacementState.READY
 
 

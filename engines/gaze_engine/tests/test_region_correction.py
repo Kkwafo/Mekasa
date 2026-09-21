@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from mekasa_gaze.interaction import RegionName
-from mekasa_gaze.region_correction import fit_region_prediction_corrector
+from mekasa_gaze.core.domain import RegionName
+from mekasa_gaze.tracking.region_correction import fit_region_prediction_corrector
 
 
 def test_region_corrector_learns_session_affine_distortion() -> None:

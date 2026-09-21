@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from mekasa_gaze.landmarker import features_from_landmarks
+from mekasa_gaze.tracking.landmarker import features_from_landmarks
 
 
 def test_feature_extraction_uses_matching_anatomical_eye_and_iris_indices() -> None:

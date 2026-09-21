@@ -43,7 +43,7 @@ class ValidityAssessment:
 def assess_gaze_validity(
     observation: FeatureObservation, config: GuidedValidationConfig
 ) -> ValidityAssessment:
-    """Evaluate gaze data validity for a single feature observation against clinical rules.
+    """Evaluate gaze data validity against experimental signal-quality rules.
 
     Responsibility:
         Applies hierarchical validation rules: checks face tracking quality, verifies presence

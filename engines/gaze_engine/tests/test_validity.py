@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from mekasa_gaze.config import GuidedValidationConfig
-from mekasa_gaze.domain import (
+from mekasa_gaze.core.config import GuidedValidationConfig
+from mekasa_gaze.core.domain import (
     ExperimentPhase,
     EyeState,
     FeatureObservation,
@@ -12,7 +12,7 @@ from mekasa_gaze.domain import (
     MeasurementStage,
     TrackingState,
 )
-from mekasa_gaze.validity import assess_gaze_validity, mark_possible_blinks
+from mekasa_gaze.tracking.validity import assess_gaze_validity, mark_possible_blinks
 
 
 def _config() -> GuidedValidationConfig:

@@ -106,7 +106,7 @@ def euler_from_transform(matrix: npt.ArrayLike) -> HeadPose:
 
     Responsibility:
         Normalizes column vectors of the 3x3 rotation component to remove scaling artifacts,
-        then extracts XYZ rotation angles in degrees following clinical aerospace conventions.
+        then extracts diagnostic XYZ rotation angles in degrees.
 
     Args:
         matrix: 4x4 facial transformation matrix returned by MediaPipe face geometry pipeline.

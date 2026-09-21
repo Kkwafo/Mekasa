@@ -196,6 +196,9 @@ class CalibrationConfig:
     min_validation_samples_per_target: int
     min_head_movement_train_samples: int
     min_head_movement_validation_samples: int
+    head_movement_training_weight: int
+    min_accepted_face_width: float
+    max_accepted_face_width: float
     require_audio_prompts: bool
     live_smoothing_alpha: float
     feature_names: tuple[str, ...]
@@ -215,6 +218,9 @@ class CalibrationConfig:
             min_head_movement_validation_samples=int(
                 calibration["min_head_movement_validation_samples"]
             ),
+            head_movement_training_weight=int(calibration["head_movement_training_weight"]),
+            min_accepted_face_width=float(calibration["min_accepted_face_width"]),
+            max_accepted_face_width=float(calibration["max_accepted_face_width"]),
             require_audio_prompts=bool(calibration["require_audio_prompts"]),
             live_smoothing_alpha=float(live["smoothing_alpha"]),
             feature_names=tuple(str(name) for name in calibration["feature_names"]),
@@ -235,6 +241,10 @@ class CalibrationConfig:
             raise ValueError("min_head_movement_train_samples must be positive")
         if self.min_head_movement_validation_samples < 1:
             raise ValueError("min_head_movement_validation_samples must be positive")
+        if self.head_movement_training_weight < 1:
+            raise ValueError("head_movement_training_weight must be positive")
+        if not 0.0 < self.min_accepted_face_width < self.max_accepted_face_width < 1.0:
+            raise ValueError("accepted face-width bounds must satisfy 0 < min < max < 1")
         if not 0.0 < self.live_smoothing_alpha <= 1.0:
             raise ValueError("smoothing_alpha must be in (0, 1]")
         if not self.feature_names or len(set(self.feature_names)) != len(self.feature_names):

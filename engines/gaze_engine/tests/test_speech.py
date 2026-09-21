@@ -9,6 +9,7 @@ from mekasa_gaze.domain import (
     TargetName,
     VisualTarget,
 )
+from mekasa_gaze.placement import PlacementAssessment, PlacementState
 from mekasa_gaze.speech import AudioInstructionController
 
 
@@ -81,3 +82,27 @@ def test_countdown_announces_each_number_once() -> None:
         controller.update(snapshot)
 
     assert speech.spoken == ["Tres", "Dos", "Uno"]
+
+
+def test_audio_announces_placement_change_during_pause() -> None:
+    speech = FakeSpeech()
+    controller = AudioInstructionController(speech)
+    waiting = _snapshot(MeasurementStage.WAITING_TRACKING, target=TargetName.CENTER)
+
+    controller.update(
+        waiting,
+        PlacementAssessment(PlacementState.TOO_FAR, "ACERCATE UN POCO", 0.24),
+    )
+    controller.update(
+        waiting,
+        PlacementAssessment(PlacementState.TOO_FAR, "ACERCATE UN POCO", 0.24),
+    )
+    controller.update(
+        waiting,
+        PlacementAssessment(PlacementState.TOO_CLOSE, "ALEJATE UN POCO", 0.46),
+    )
+
+    assert speech.spoken == [
+        "Estás demasiado lejos. Acercate un poco.",
+        "Estás demasiado cerca. Alejate un poco.",
+    ]

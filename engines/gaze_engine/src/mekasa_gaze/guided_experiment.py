@@ -111,7 +111,7 @@ def run_guided_validation(
                     placement_tracking_state(feature_observation, placement),
                 )
                 loop_latency_ms = (perf_counter_ns() - iteration_started_ns) / 1_000_000
-                audio_instructions.update(snapshot)
+                audio_instructions.update(snapshot, placement)
 
                 frame_times.append(now)
                 rolling_fps = _rolling_fps(frame_times)

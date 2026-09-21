@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from mekasa_gaze.config import GuidedValidationConfig
 from mekasa_gaze.domain import (
@@ -33,6 +33,8 @@ class GuidedProtocol:
         self._protocol_started_at: float | None = None
         self._segment_started_at: float | None = None
         self._segment_index = 0
+        self._pause_started_at: float | None = None
+        self._paused_snapshot: ProtocolSnapshot | None = None
 
     @staticmethod
     def _build_segments(config: GuidedValidationConfig) -> tuple[ProtocolSegment, ...]:
@@ -87,7 +89,30 @@ class GuidedProtocol:
     def update(self, now_seconds: float, tracking_state: TrackingState) -> ProtocolSnapshot:
         if self._protocol_started_at is None:
             return self._update_preparation(now_seconds, tracking_state)
+        if tracking_state is not TrackingState.GOOD:
+            return self._pause_running(now_seconds)
+        if self._pause_started_at is not None:
+            paused_seconds = now_seconds - self._pause_started_at
+            self._protocol_started_at += paused_seconds
+            assert self._segment_started_at is not None
+            self._segment_started_at += paused_seconds
+            self._pause_started_at = None
+            self._paused_snapshot = None
         return self._update_running(now_seconds)
+
+    def _pause_running(self, now_seconds: float) -> ProtocolSnapshot:
+        if self._pause_started_at is None:
+            frozen = self._update_running(now_seconds)
+            if frozen.completed:
+                return frozen
+            self._pause_started_at = now_seconds
+            self._paused_snapshot = replace(
+                frozen,
+                stage=MeasurementStage.WAITING_TRACKING,
+                instruction="Recuperá una posición válida frente a la cámara.",
+            )
+        assert self._paused_snapshot is not None
+        return self._paused_snapshot
 
     def _update_preparation(
         self, now_seconds: float, tracking_state: TrackingState

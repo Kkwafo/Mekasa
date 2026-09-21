@@ -39,9 +39,9 @@ The three target blocks contain CENTER, LEFT, RIGHT, UP, DOWN and the four diago
 C:\Projects\Mekasa\work\bootstrap\Scripts\uv.exe run --locked mekasa-calibrate
 ```
 
-The baseline is a closed-form ridge regression with independent normalized X/Y outputs. Inputs are both iris coordinates and coarse face position/size. Approximate head-pose angles remain in the diagnostic report but are not direct regression inputs: the 2026-09-21 run showed extreme extrapolation when angles observed only during fixed-head target collection were used at natural head poses. Center head-movement samples instead anchor the mapping empirically. Feature standardization is learned only from training blocks.
+The baseline is a closed-form ridge regression with independent normalized X/Y outputs. Inputs are both iris coordinates and approximate head-pose angles. Pose was unsafe when it appeared only in fixed-head target collection, but becomes useful once two blocked movement phases cover its natural range. The movement samples receive an explicit training weight of eight, selected on development block 2; target block 3 and movement block 3 remain held out. Coarse face size is still used to accept or reject placement, but face position/size are not regression inputs in this iteration. Feature standardization is learned only from training blocks.
 
-For reports produced with placement guidance, frames whose detected face width falls outside the recorded preparation band are excluded from fitting and held-out evaluation. The command fails honestly if that leaves too few samples for any target.
+Calibration applies its own recorded acceptance band, currently 0.25–0.45 normalized face width, without rewriting the source report. This permits auditable reanalysis when a completed run demonstrates reliable tracking slightly outside its original preparation band. The command fails honestly if that still leaves too few samples for any target.
 
 The command prints and stores:
 
@@ -69,7 +69,7 @@ C:\Projects\Mekasa\work\bootstrap\Scripts\uv.exe run --locked mekasa-live-evalua
 
 The window shows nine reference positions, a smoothed predicted crosshair and the nearest target label. Invalid/closed-eye/tracking-invalid frames clear the prediction rather than carrying an old value forward. Press `Q` or `Esc` to stop.
 
-A loading screen is shown while the camera and landmark model initialize. Camera-relative face-size guidance remains visible: keep the placement in `DISTANCIA CORRECTA`; changing distance after calibration can shift predictions even though face size is one of the model inputs.
+A loading screen is shown while the camera and landmark model initialize. Camera-relative face-size guidance remains visible: keep the placement in `DISTANCIA CORRECTA`. Future guided collection pauses and announces placement changes by audio instead of silently continuing. Distance can still change iris and pose geometry even though face size is used as an acceptance signal rather than a regression input.
 
 The response is explicitly labelled experimental. It does not move the operating-system cursor, make a selection, speak an AAC message or trigger any external action.
 

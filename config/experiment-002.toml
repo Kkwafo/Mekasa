@@ -1,21 +1,25 @@
 [calibration]
 # Engineering baseline only. This is not a clinically validated model or threshold.
-ridge_alpha = 1.0
+ridge_alpha = 10.0
 validation_block_index = 3
 min_train_samples_per_target = 40
 min_validation_samples_per_target = 20
 min_head_movement_train_samples = 40
 min_head_movement_validation_samples = 20
+head_movement_training_weight = 8
+# Explicit recalibration acceptance band. This permits honest reanalysis of a
+# preserved report without rewriting its original protocol configuration.
+min_accepted_face_width = 0.25
+max_accepted_face_width = 0.45
 require_audio_prompts = true
 feature_names = [
   "left_iris_x",
   "left_iris_y",
   "right_iris_x",
   "right_iris_y",
-  "face_center_x",
-  "face_center_y",
-  "face_width",
-  "face_height",
+  "head_yaw_degrees",
+  "head_pitch_degrees",
+  "head_roll_degrees",
 ]
 
 [live_evaluation]

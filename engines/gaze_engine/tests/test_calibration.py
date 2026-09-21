@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,9 @@ def _config() -> CalibrationConfig:
         min_validation_samples_per_target=2,
         min_head_movement_train_samples=2,
         min_head_movement_validation_samples=2,
+        head_movement_training_weight=1,
+        min_accepted_face_width=0.30,
+        max_accepted_face_width=0.45,
         require_audio_prompts=True,
         live_smoothing_alpha=0.25,
         feature_names=("left_iris_x", "right_iris_y"),
@@ -142,7 +146,7 @@ def test_calibration_accepts_one_usable_eye_and_imputes_the_other() -> None:
     )
 
 
-def test_calibration_excludes_observations_outside_recorded_placement_band() -> None:
+def test_calibration_excludes_observations_outside_configured_acceptance_band() -> None:
     report = _report()
     observations = report["observations"]
     assert isinstance(observations, list)
@@ -155,6 +159,25 @@ def test_calibration_excludes_observations_outside_recorded_placement_band() -> 
     artifact = calibrate_from_report(report, _config(), report_sha256="abc")
 
     assert artifact["split"]["training_sample_counts"]["CENTER"] == 5
+
+
+def test_calibration_can_reanalyze_report_with_explicit_acceptance_band() -> None:
+    report = _report()
+    observations = report["observations"]
+    assert isinstance(observations, list)
+    sample = observations[0]
+    assert isinstance(sample, dict)
+    features = sample["features"]
+    assert isinstance(features, dict)
+    features["face_width"] = 0.27
+
+    artifact = calibrate_from_report(
+        report,
+        replace(_config(), min_accepted_face_width=0.25),
+    )
+
+    assert artifact["split"]["training_sample_counts"]["CENTER"] == 6
+    assert artifact["preprocessing"]["accepted_face_width"]["min"] == 0.25
 
 
 def test_calibration_rejects_legacy_single_block_report() -> None:
@@ -174,8 +197,10 @@ def test_calibration_config_uses_head_robust_features_and_thresholds() -> None:
 
     assert config.min_head_movement_train_samples == 40
     assert config.min_head_movement_validation_samples == 20
-    assert "face_center_x" in config.feature_names
-    assert "head_yaw_degrees" not in config.feature_names
+    assert config.head_movement_training_weight == 8
+    assert config.min_accepted_face_width == pytest.approx(0.25)
+    assert "head_yaw_degrees" in config.feature_names
+    assert "face_center_x" not in config.feature_names
 
 
 def test_calibration_model_rejects_pre_head_movement_artifact() -> None:

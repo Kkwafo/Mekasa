@@ -409,7 +409,7 @@ def _draw_test_area(
         for index, line in enumerate(instruction_lines[:3]):
             _text(canvas, line, (36, 130 + index * 34), 0.72, _TEXT, 2)
 
-    if snapshot.phase is ExperimentPhase.PREPARATION and placement is not None:
+    if snapshot.stage is MeasurementStage.WAITING_TRACKING and placement is not None:
         color = _GOOD if placement.ready else _WARN
         _centered_text(
             canvas[:, :test_width],

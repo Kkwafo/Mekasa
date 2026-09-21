@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from mekasa_gaze.domain import ExperimentPhase, MeasurementStage, ProtocolSnapshot, TargetName
+from mekasa_gaze.placement import PlacementAssessment, PlacementState
 
 _PROBE_SCRIPT = r"""
 Add-Type -AssemblyName System.Speech
@@ -175,8 +176,12 @@ class AudioInstructionController:
         self._backend = backend
         self._last_cue: str | None = None
 
-    def update(self, snapshot: ProtocolSnapshot) -> None:
-        cue = _cue(snapshot)
+    def update(
+        self,
+        snapshot: ProtocolSnapshot,
+        placement: PlacementAssessment | None = None,
+    ) -> None:
+        cue = _cue(snapshot, placement)
         if cue is None or cue[0] == self._last_cue:
             return
         self._last_cue = cue[0]
@@ -205,8 +210,30 @@ def create_speech_backend(
         return DisabledSpeech()
 
 
-def _cue(snapshot: ProtocolSnapshot) -> tuple[str, str] | None:
+def _cue(
+    snapshot: ProtocolSnapshot,
+    placement: PlacementAssessment | None = None,
+) -> tuple[str, str] | None:
     if snapshot.stage is MeasurementStage.WAITING_TRACKING:
+        if placement is not None:
+            return {
+                PlacementState.NO_FACE: (
+                    "placement:no-face",
+                    "Ubicá tu rostro frente a la cámara.",
+                ),
+                PlacementState.TOO_FAR: (
+                    "placement:too-far",
+                    "Estás demasiado lejos. Acercate un poco.",
+                ),
+                PlacementState.TOO_CLOSE: (
+                    "placement:too-close",
+                    "Estás demasiado cerca. Alejate un poco.",
+                ),
+                PlacementState.READY: (
+                    "placement:ready",
+                    "Distancia correcta. Mantené esta posición.",
+                ),
+            }[placement.state]
         return "preparation", "Ubicá tu rostro frente a la cámara."
     if snapshot.stage is MeasurementStage.COUNTDOWN:
         if snapshot.stage_remaining_seconds is None:

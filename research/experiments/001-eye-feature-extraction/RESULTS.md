@@ -174,6 +174,32 @@ This materially improved the earlier five-target global median and added direct 
 
 A retrospective evaluation of the produced full-feature model on 149 placement-valid head-movement center samples measured a 1,182.80 px median error, 1,524.19 px P90 and 81.88% predictions outside screen bounds. This directly supports the operator's report that changing head direction caused the live mapping to become misconfigured. The fixed-head held-out score must not be interpreted as head-movement robustness.
 
-Schema 5 therefore replaces the single diagnostic movement phase with three blocked center-fixation movement phases. Blocks 1–2 contribute empirical movement anchors; block 3 remains held out and receives a separate error report. Approximate pose angles remain diagnostics rather than direct regression features because the schema-4 model extrapolated them far beyond their target-training range. This is still limited to center fixation and is not evidence for every gaze/pose combination.
+Schema 5 therefore replaces the single diagnostic movement phase with three blocked center-fixation movement phases. Blocks 1–2 contribute empirical movement anchors; block 3 remains held out and receives a separate error report. Pose angles can only be regression inputs once those movement anchors cover their range; the movement observations are explicitly weighted during fitting. This is still limited to center fixation and is not evidence for every gaze/pose combination.
 
 The exact local report is `work/guided-validation/history/guided-validation-20260921T190555.628492Z.json`, SHA-256 `ebc87f00045d90ffdf0fba8617d5810504b2eed464f1bab95c0bc02a6f2c2ea1`. The derived model SHA-256 is `aedd884728ce2f7a56db1b7f0e3211b8cc28acf0fc512ac5c8a25f8223fc94ef`. Neither artifact contains video, images or raw facial landmarks.
+
+## Measured run: 2026-09-21, blocked head-movement validation 04
+
+Source commit: `93ad0d9053906b294ebb723aa620ad4948973a08` (clean). The schema-5 protocol completed all nine-target and three head-movement blocks, but calibration initially rejected the run because its recorded minimum face width was 0.30.
+
+| Metric | Observed value |
+| --- | ---: |
+| Frames / effective FPS | 7,160 / 29.9989 |
+| Tracking availability | 100.0000% |
+| Usable gaze availability | 98.8128% |
+| Target-measurement usable-eye samples | 2,418 |
+| Accepted at original 0.30 face-width floor | 632 |
+| Accepted at evidence-based 0.25 floor | 2,418 |
+| Head-movement usable-eye samples | 444 |
+| Accepted at original 0.30 floor | 14 |
+| Accepted at evidence-based 0.25 floor | 444 |
+| Target-phase face width, min / median / max | 0.2770 / 0.2876 / 0.3143 |
+| Movement-phase face width, min / median / max | 0.2643 / 0.2861 / 0.3043 |
+
+The failure was therefore caused by an over-strict engineering placement rule, not loss of face tracking or generally unusable eye evidence. The observed run supports lowering the face-width floor to 0.25: its smallest observed value was 0.2643, leaving measured margin. It provides no evidence for reliable operation below 0.25, so a still-greater distance must be evaluated rather than assumed.
+
+Reanalysis at the 0.25–0.45 acceptance band made every block eligible. An exploratory ridge candidate selected using development block 2 uses iris coordinates plus head-pose diagnostics, ridge alpha 10 and an eightfold weight for center head-movement anchors. On block 3 it measured 117.60 px target median error, 191.88 px P90, 59.98% closest-target hit rate and 0.25% outside-screen predictions. The separately held-out movement-center block measured 65.03 px median, 152.16 px P90, 88.89% closest-to-center rate and 1.39% outside-screen predictions.
+
+This is a real improvement in head-movement robustness but is not point-accurate gaze. Because the model/configuration iteration was chosen after examining this completed session, these values are retrospective engineering evidence, not a prospective independent validation. Another session is required before treating the improvement as repeatable.
+
+Future guided runs now pause measurement whenever placement leaves the accepted band and announce `ACERCATE` or `ALEJATE` through local audio. They can no longer silently finish with too few placement-valid samples. The exact local report is `work/guided-validation/history/guided-validation-20260921T210436.062735Z.json`, SHA-256 `d6cc04de976ca797a43a14b23c6baae71240f98fe514ceca60f6bbab660a9e39`.

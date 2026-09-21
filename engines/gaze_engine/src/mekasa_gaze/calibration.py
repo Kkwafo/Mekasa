@@ -114,11 +114,15 @@ def calibrate_from_report(
         report,
         config.feature_names,
         phase="GAZE_DISCRIMINATION",
+        min_face_width=config.min_accepted_face_width,
+        max_face_width=config.max_accepted_face_width,
     )
     head_movement_records = _calibration_records(
         report,
         config.feature_names,
         phase="HEAD_MOVEMENT",
+        min_face_width=config.min_accepted_face_width,
+        max_face_width=config.max_accepted_face_width,
     )
     if any(record[1] is not TargetName.CENTER for record in head_movement_records):
         raise ValueError("Head-movement calibration records must use the CENTER target")
@@ -152,7 +156,10 @@ def calibrate_from_report(
         "head-movement validation",
     )
 
-    training = [*gaze_training, *head_movement_training]
+    training = [
+        *gaze_training,
+        *(head_movement_training * config.head_movement_training_weight),
+    ]
     train_x, train_y, train_targets = _arrays(training)
     validation_x, validation_y, validation_targets = _arrays(validation)
     head_validation_x, head_validation_y, head_validation_targets = _arrays(
@@ -202,10 +209,16 @@ def calibrate_from_report(
             "feature_mean": feature_mean.tolist(),
             "feature_scale": feature_scale.tolist(),
             "closed_or_unusable_eye_iris_imputation": "training_feature_mean",
+            "accepted_face_width": {
+                "min": config.min_accepted_face_width,
+                "max": config.max_accepted_face_width,
+                "source": "calibration_configuration",
+            },
         },
         "model": {
             "type": "ridge_regression_closed_form",
             "ridge_alpha": config.ridge_alpha,
+            "head_movement_training_weight": config.head_movement_training_weight,
             "weights": weights.tolist(),
             "output_intercept": output_intercept.tolist(),
         },
@@ -220,6 +233,9 @@ def calibrate_from_report(
             "training_sample_counts": _sample_counts(gaze_training),
             "validation_sample_counts": _sample_counts(validation),
             "head_movement_training_sample_count": len(head_movement_training),
+            "head_movement_effective_training_sample_count": (
+                len(head_movement_training) * config.head_movement_training_weight
+            ),
             "head_movement_validation_sample_count": len(head_movement_validation),
         },
         "metrics": {
@@ -271,8 +287,8 @@ def calibrate_from_report(
                 "by training-set means rather than treated as observed gaze evidence."
             ),
             (
-                "When the source report defines face-size placement bounds, observations "
-                "outside that band are excluded from calibration."
+                "Observations outside the explicit calibration face-size acceptance band "
+                "are excluded; that band may differ from the preserved source protocol."
             ),
             "Closest-target hit rate is technical validation, not clinical validation.",
             (
@@ -338,11 +354,10 @@ def _calibration_records(
     feature_names: tuple[str, ...],
     *,
     phase: str,
+    min_face_width: float,
+    max_face_width: float,
 ) -> list[tuple[int, TargetName, npt.NDArray[np.float64], tuple[float, float]]]:
     records: list[tuple[int, TargetName, npt.NDArray[np.float64], tuple[float, float]]] = []
-    report_config = report["protocol"]["configuration"]
-    min_face_width = report_config.get("min_face_width")
-    max_face_width = report_config.get("max_face_width")
     for item in report["observations"]:
         if (
             item["phase"] != phase

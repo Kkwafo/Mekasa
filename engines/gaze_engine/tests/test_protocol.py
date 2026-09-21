@@ -73,6 +73,27 @@ def test_segment_separates_transition_acquisition_and_measurement() -> None:
     assert measurement.phase is ExperimentPhase.CENTER_STABILITY
 
 
+def test_running_protocol_pauses_until_placement_recovers() -> None:
+    config = _config()
+    protocol = _protocol()
+    protocol.update(0.0, TrackingState.GOOD)
+    protocol.update(1.5, TrackingState.GOOD)
+    protocol_start = 4.5
+    protocol.update(protocol_start, TrackingState.GOOD)
+    measurement_started = protocol_start + config.transition_seconds + config.acquisition_seconds
+    protocol.update(measurement_started, TrackingState.GOOD)
+
+    paused = protocol.update(measurement_started + 1.0, TrackingState.UNCERTAIN)
+    still_paused = protocol.update(measurement_started + 11.0, TrackingState.UNCERTAIN)
+    resumed = protocol.update(measurement_started + 11.0, TrackingState.GOOD)
+
+    assert paused.stage is MeasurementStage.WAITING_TRACKING
+    assert still_paused == paused
+    assert resumed.stage is MeasurementStage.MEASUREMENT
+    assert resumed.target == paused.target
+    assert resumed.stage_remaining_seconds == pytest.approx(4.0)
+
+
 def test_protocol_contains_required_discrimination_targets() -> None:
     config = _config()
     protocol = _protocol()

@@ -203,3 +203,32 @@ Reanalysis at the 0.25–0.45 acceptance band made every block eligible. An expl
 This is a real improvement in head-movement robustness but is not point-accurate gaze. Because the model/configuration iteration was chosen after examining this completed session, these values are retrospective engineering evidence, not a prospective independent validation. Another session is required before treating the improvement as repeatable.
 
 Future guided runs now pause measurement whenever placement leaves the accepted band and announce `ACERCATE` or `ALEJATE` through local audio. They can no longer silently finish with too few placement-valid samples. The exact local report is `work/guided-validation/history/guided-validation-20260921T210436.062735Z.json`, SHA-256 `d6cc04de976ca797a43a14b23c6baae71240f98fe514ceca60f6bbab660a9e39`. The experimental schema-2 calibration generated from it at source commit `621f81cff2197efc2a543c3749ff745ff6e92360` has SHA-256 `fefd0b3f403fcf4c14eefb66b9b4bbf837b6c36f7c2eaa065dad4be5bbaf0abf`.
+
+## Measured run: 2026-09-21, prospective farther-distance validation 05
+
+Source commit: `386cc3614d14375a79ef7df444029f3dd7fe07b3` (clean). This run prospectively exercised the 0.25–0.45 placement band and the previously selected ridge configuration rather than selecting them after seeing this report. The protocol and calibration both completed.
+
+| Metric | Observed value |
+| --- | ---: |
+| Frames / effective FPS | 7,203 / 30.0046 |
+| Tracking availability / losses | 99.9861% / 1 |
+| Usable gaze availability | 94.4329% |
+| Full-loop latency median / P90 | 22.3793 / 32.5455 ms |
+| Process CPU, one-core / total-capacity basis | 111.8800% / 13.9850% |
+| Resident memory median / maximum | 212.6563 / 222.0117 MiB |
+| Held-out fixed-target samples | 783 |
+| Fixed-target hit rate | 63.0907% |
+| Fixed-target pixel error median / P90 | 125.6154 / 174.0415 px |
+| Held-out head-movement center samples | 140 |
+| Head-movement center hit rate | 83.5714% |
+| Head-movement pixel error median / P90 | 57.2415 / 163.8433 px |
+
+During active fixed-target collection, face width was 0.2640 minimum, 0.2734 median and 0.3072 maximum. The preceding run's target-phase median was 0.2876, so the new run provides real evidence at a somewhat greater camera distance. Preparation paused for 264 frames; 155 of those frames, approximately 5.2 seconds at the measured rate, were below the 0.25 floor. After the operator moved closer, all 27 fixed block/target groups had enough samples and calibration completed. The distance warning therefore prevented an unusable run without forcing the earlier 0.30 minimum.
+
+Compared with validation 04, the fixed-target median worsened from 117.60 to 125.62 px while P90 improved from 191.88 to 174.04 px and hit rate rose from 59.98% to 63.09%. For held-out head movement, median improved from 65.03 to 57.24 px while P90 worsened from 152.16 to 163.84 px and center hit rate declined from 88.89% to 83.57%. Usable gaze availability fell from 98.8128% to 94.4329%, consistent with weaker eye evidence at the greater distance, although this single run cannot establish distance as the cause.
+
+Fixed-target performance was asymmetric: BOTTOM_RIGHT had an 8.54% hit rate and 165.18 px median error; LEFT had 25.56% and 166.05 px; UP had 36.67% and 138.62 px; TOP_LEFT had 41.11% and 149.73 px. In contrast, RIGHT, CENTER and TOP_RIGHT had at least 96.63% hit rates. This is not point-accurate gaze and is not suitable for AAC control.
+
+A three-fold block sensitivity check using only this report showed that the configured model's fixed-target median varied from 96.67 to 125.62 px and head-movement median from 57.24 to 124.04 px depending on the held-out block. Reducing movement-anchor weight improved fixed-target cross-fold performance but degraded head-movement performance; adding face geometry did not remove the trade-off. The evidence therefore points to a protocol/model identifiability limitation rather than a single threshold problem: center-only movement anchors do not show the model how each non-center gaze target behaves across head poses.
+
+The next experiment should collect pose-diverse evidence at multiple gaze targets, or explicitly factor eye-in-head direction from head pose, and compare it prospectively against this baseline. It should not tune another global linear weight against this same held-out block. The exact report is `work/guided-validation/history/guided-validation-20260921T221343.930358Z.json`, SHA-256 `fed157a87da97d9dbfd6b9b9ea5d214374acdf04622aff54e02025be56fca53f`. The derived model SHA-256 is `91cdb1527b5825c007c25420fd77bac4ef0413891ba7a87855927a6a5ce6ee50`. Neither artifact contains video, images or raw facial landmarks.

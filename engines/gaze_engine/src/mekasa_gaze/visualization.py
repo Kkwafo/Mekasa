@@ -360,17 +360,22 @@ def _controlled_region_status(
     if protocol.stage is RegionTrialStage.COUNTDOWN:
         return "PREPARATE — LA PRUEBA ESTA POR COMENZAR", _ACCENT
     if protocol.stage is RegionTrialStage.CUE:
+        if protocol.is_practice:
+            return "PRACTICA — ESCUCHA Y LUEGO MIRA EL PUNTO", _ACCENT
         return "ESCUCHA LA REGION INDICADA", _TEXT
     if protocol.stage is RegionTrialStage.RESPONSE:
         if not placement.ready:
             return placement.instruction, _WARN
         if not selection.tracking_available:
             return "MIRADA NO DISPONIBLE — EL PROGRESO SE REINICIO", _BAD
+        if protocol.is_practice:
+            return "PRACTICA — MANTENE LA MIRADA EN EL PUNTO", _ACCENT
         if selection.candidate is not None:
             return f"MANTENE LA MIRADA — {selection.dwell_progress * 100:.0f}%", _ACCENT
         return "MIRA LA REGION INDICADA", _TEXT
     if protocol.stage is RegionTrialStage.FEEDBACK and protocol.completed_trial is not None:
         labels = {
+            RegionTrialOutcome.PRACTICE: ("PRACTICA REGISTRADA", _ACCENT),
             RegionTrialOutcome.CORRECT: ("CORRECTO", _GOOD),
             RegionTrialOutcome.INCORRECT: ("REGION INCORRECTA", _BAD),
             RegionTrialOutcome.NO_SELECTION: ("SIN SELECCION", _WARN),

@@ -6,9 +6,13 @@ hysteresis_margin = 0.06
 
 [controlled_validation]
 blocks = 3
+practice_blocks = 1
 target_order_seed = 3001
 tracking_stable_seconds = 1.5
 countdown_seconds = 3.0
 cue_seconds = 4.0
+practice_measurement_seconds = 3.0
 response_timeout_seconds = 5.0
 feedback_seconds = 1.5
+correction_ridge_alpha = 1.0
+min_correction_samples_per_region = 20

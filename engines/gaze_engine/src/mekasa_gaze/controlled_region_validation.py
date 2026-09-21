@@ -24,6 +24,10 @@ from mekasa_gaze.interaction import DwellSelector, RegionName, region_at
 from mekasa_gaze.landmarker import FaceFeatureExtractor
 from mekasa_gaze.live_evaluation import PredictionSmoother
 from mekasa_gaze.placement import assess_face_placement
+from mekasa_gaze.region_correction import (
+    RegionPredictionCorrector,
+    fit_region_prediction_corrector,
+)
 from mekasa_gaze.region_evaluation import _sha256, _write_report
 from mekasa_gaze.region_protocol import (
     ControlledRegionProtocol,
@@ -73,13 +77,18 @@ def run_controlled_region_validation(
     smoother = PredictionSmoother(calibration_config.live_smoothing_alpha)
     frame_times: deque[float] = deque(maxlen=60)
     results: list[dict[str, Any]] = []
+    practice_samples: list[tuple[RegionName, tuple[float, float]]] = []
+    corrector: RegionPredictionCorrector | None = None
     seen_results: set[int] = set()
     trial_metrics: dict[int, dict[str, int]] = defaultdict(_empty_trial_metrics)
     frames_total = 0
     frames_usable = 0
     placement_invalid_frames = 0
     gaze_unusable_frames = 0
-    outside_prediction_frames = 0
+    raw_outside_prediction_frames = 0
+    correction_evaluated_frames = 0
+    raw_outside_frames_with_correction = 0
+    corrected_outside_prediction_frames = 0
     last_candidate: RegionName | None = None
     last_progress = 0.0
     last_audio_key: str | None = None
@@ -154,19 +163,45 @@ def run_controlled_region_validation(
                         )
                     except ValueError:
                         raw_prediction = None
-                prediction = smoother.update(raw_prediction)
-                if prediction is not None:
+                raw_smoothed_prediction = smoother.update(raw_prediction)
+                prediction = (
+                    corrector.predict(raw_smoothed_prediction)
+                    if corrector is not None and raw_smoothed_prediction is not None
+                    else raw_smoothed_prediction
+                )
+                if raw_smoothed_prediction is not None:
                     frames_usable += 1
                 if not placement.ready:
                     placement_invalid_frames += 1
                 elif not gaze_usable:
                     gaze_unusable_frames += 1
-                if prediction is not None and region_at(prediction) is None:
-                    outside_prediction_frames += 1
+                if (
+                    raw_smoothed_prediction is not None
+                    and region_at(raw_smoothed_prediction) is None
+                ):
+                    raw_outside_prediction_frames += 1
+                if corrector is not None and raw_smoothed_prediction is not None:
+                    correction_evaluated_frames += 1
+                    if region_at(raw_smoothed_prediction) is None:
+                        raw_outside_frames_with_correction += 1
+                    if prediction is not None and region_at(prediction) is None:
+                        corrected_outside_prediction_frames += 1
 
                 now = perf_counter()
                 previous_stage = snapshot.stage
                 snapshot = protocol.update(now, ready=ready)
+                if (
+                    corrector is None
+                    and snapshot.block_index is not None
+                    and snapshot.block_index > interaction_config.practice_blocks
+                ):
+                    corrector = fit_region_prediction_corrector(
+                        practice_samples,
+                        ridge_alpha=interaction_config.correction_ridge_alpha,
+                        min_samples_per_region=(
+                            interaction_config.min_correction_samples_per_region
+                        ),
+                    )
                 if (
                     previous_stage is RegionTrialStage.RESPONSE
                     and snapshot.stage is RegionTrialStage.FEEDBACK
@@ -177,22 +212,41 @@ def run_controlled_region_validation(
                 ):
                     trial_metrics[snapshot.completed_trial.trial_index]["dwell_cancellations"] += 1
                 if snapshot.stage is RegionTrialStage.RESPONSE:
-                    selection = selector.update(prediction, now)
                     assert snapshot.trial_index is not None
                     metrics = trial_metrics[snapshot.trial_index]
                     metrics["frames_total"] += 1
-                    if prediction is not None:
+                    if raw_smoothed_prediction is not None:
                         metrics["frames_usable"] += 1
                     else:
                         metrics["frames_unusable"] += 1
                     if (
-                        last_candidate is not None
+                        raw_smoothed_prediction is not None
+                        and region_at(raw_smoothed_prediction) is None
+                    ):
+                        metrics["raw_outside_prediction_frames"] += 1
+                    if corrector is not None and raw_smoothed_prediction is not None:
+                        metrics["correction_applied_frames"] += 1
+                        if prediction is not None and region_at(prediction) is None:
+                            metrics["corrected_outside_prediction_frames"] += 1
+                    if snapshot.is_practice:
+                        if raw_smoothed_prediction is not None and snapshot.requested is not None:
+                            practice_samples.append((snapshot.requested, raw_smoothed_prediction))
+                        selection = selector.update(None, now)
+                    else:
+                        selection = selector.update(prediction, now)
+                    if (
+                        not snapshot.is_practice
+                        and last_candidate is not None
                         and last_progress > 0.0
                         and not selection.selection_fired
                         and selection.candidate is not last_candidate
                     ):
                         metrics["dwell_cancellations"] += 1
-                    if selection.selection_fired and selection.selected is not None:
+                    if (
+                        not snapshot.is_practice
+                        and selection.selection_fired
+                        and selection.selected is not None
+                    ):
                         snapshot = protocol.update(now, ready=ready, selected=selection.selected)
                 else:
                     selection = selector.update(None, now)
@@ -258,7 +312,11 @@ def run_controlled_region_validation(
         frames_usable=frames_usable,
         placement_invalid_frames=placement_invalid_frames,
         gaze_unusable_frames=gaze_unusable_frames,
-        outside_prediction_frames=outside_prediction_frames,
+        raw_outside_prediction_frames=raw_outside_prediction_frames,
+        correction_evaluated_frames=correction_evaluated_frames,
+        raw_outside_frames_with_correction=raw_outside_frames_with_correction,
+        corrected_outside_prediction_frames=corrected_outside_prediction_frames,
+        corrector=corrector,
         completed=completed,
         aborted=aborted,
     )
@@ -270,6 +328,9 @@ def _empty_trial_metrics() -> dict[str, int]:
         "frames_usable": 0,
         "frames_unusable": 0,
         "dwell_cancellations": 0,
+        "raw_outside_prediction_frames": 0,
+        "correction_applied_frames": 0,
+        "corrected_outside_prediction_frames": 0,
     }
 
 
@@ -288,12 +349,17 @@ def _update_audio(
             key, text = f"countdown:{number}", {3: "Tres", 2: "Dos", 1: "Uno"}[number]
     elif snapshot.stage is RegionTrialStage.CUE and snapshot.requested is not None:
         key = f"trial:{snapshot.trial_index}"
-        text = {
+        region_text = {
             RegionName.TOP_LEFT: "Arriba a la izquierda",
             RegionName.TOP_RIGHT: "Arriba a la derecha",
             RegionName.BOTTOM_LEFT: "Abajo a la izquierda",
             RegionName.BOTTOM_RIGHT: "Abajo a la derecha",
         }[snapshot.requested]
+        text = (
+            f"Práctica. {region_text}. Mirá el punto hasta que termine."
+            if snapshot.is_practice
+            else region_text
+        )
     elif snapshot.stage is RegionTrialStage.COMPLETE:
         key, text = "complete", "Prueba finalizada. Podés descansar."
     if key is not None and key != last_key and text is not None:
@@ -316,28 +382,40 @@ def _build_report(
     frames_usable: int,
     placement_invalid_frames: int,
     gaze_unusable_frames: int,
-    outside_prediction_frames: int,
+    raw_outside_prediction_frames: int,
+    correction_evaluated_frames: int,
+    raw_outside_frames_with_correction: int,
+    corrected_outside_prediction_frames: int,
+    corrector: RegionPredictionCorrector | None,
     completed: bool,
     aborted: bool,
 ) -> dict[str, Any]:
-    outcome_counts = Counter(item["outcome"] for item in results)
+    practice_results = [
+        item for item in results if item["outcome"] == RegionTrialOutcome.PRACTICE.value
+    ]
+    scored_results = [
+        item for item in results if item["outcome"] != RegionTrialOutcome.PRACTICE.value
+    ]
+    outcome_counts = Counter(item["outcome"] for item in scored_results)
     correct = outcome_counts[RegionTrialOutcome.CORRECT.value]
     incorrect = outcome_counts[RegionTrialOutcome.INCORRECT.value]
     no_selection = outcome_counts[RegionTrialOutcome.NO_SELECTION.value]
     selected_trials = correct + incorrect
     response_times = [
-        float(item["response_seconds"]) for item in results if item["response_seconds"] is not None
+        float(item["response_seconds"])
+        for item in scored_results
+        if item["response_seconds"] is not None
     ]
     correct_response_times = [
         float(item["response_seconds"])
-        for item in results
+        for item in scored_results
         if item["outcome"] == RegionTrialOutcome.CORRECT.value
         and item["response_seconds"] is not None
     ]
     confusion: dict[str, dict[str, int]] = {}
     per_region: dict[str, dict[str, Any]] = {}
     for region in RegionName:
-        region_results = [item for item in results if item["requested"] == region.value]
+        region_results = [item for item in scored_results if item["requested"] == region.value]
         selected_counts = Counter(item["selected"] or "NONE" for item in region_results)
         confusion[region.value] = {
             name: selected_counts[name]
@@ -359,9 +437,9 @@ def _build_report(
                 ]
             ),
         }
-    total = len(results)
+    total = len(scored_results)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "CONTROLLED_ABSTRACT_REGION_VALIDATION",
         "created_at_utc": datetime.now(UTC).isoformat(),
         "source": source_revision(),
@@ -373,6 +451,12 @@ def _build_report(
             "completed": completed,
             "aborted_by_operator": aborted,
             "planned_trial_count": interaction_config.validation_blocks * len(RegionName),
+            "practice_block_count": interaction_config.practice_blocks,
+            "planned_practice_trial_count": interaction_config.practice_blocks * len(RegionName),
+            "planned_scored_trial_count": (
+                interaction_config.validation_blocks - interaction_config.practice_blocks
+            )
+            * len(RegionName),
             "target_order_seed": interaction_config.target_order_seed,
             "target_orders": [
                 [region.value for region in block] for block in protocol.planned_orders
@@ -383,8 +467,13 @@ def _build_report(
             "cooldown_seconds": interaction_config.cooldown_seconds,
             "hysteresis_margin": interaction_config.hysteresis_margin,
             "cue_seconds": interaction_config.cue_seconds,
+            "practice_measurement_seconds": (interaction_config.practice_measurement_seconds),
             "response_timeout_seconds": interaction_config.response_timeout_seconds,
             "feedback_seconds": interaction_config.feedback_seconds,
+            "correction_ridge_alpha": interaction_config.correction_ridge_alpha,
+            "min_correction_samples_per_region": (
+                interaction_config.min_correction_samples_per_region
+            ),
             "smoothing_alpha": calibration_config.live_smoothing_alpha,
             "min_face_width": guided_config.min_face_width,
             "max_face_width": guided_config.max_face_width,
@@ -396,21 +485,41 @@ def _build_report(
             "usable_fraction": frames_usable / frames_total if frames_total else None,
             "placement_invalid_frames": placement_invalid_frames,
             "gaze_unusable_frames": gaze_unusable_frames,
-            "outside_prediction_frames": outside_prediction_frames,
-            "completed_trial_count": total,
+            "raw_outside_prediction_frames": raw_outside_prediction_frames,
+            "correction_comparison": {
+                "evaluated_frames": correction_evaluated_frames,
+                "raw_outside_prediction_frames": raw_outside_frames_with_correction,
+                "corrected_outside_prediction_frames": corrected_outside_prediction_frames,
+                "raw_outside_fraction": (
+                    raw_outside_frames_with_correction / correction_evaluated_frames
+                    if correction_evaluated_frames
+                    else None
+                ),
+                "corrected_outside_fraction": (
+                    corrected_outside_prediction_frames / correction_evaluated_frames
+                    if correction_evaluated_frames
+                    else None
+                ),
+            },
+            "completed_trial_count": len(results),
+            "practice_trial_count": len(practice_results),
+            "scored_trial_count": total,
             "correct_count": correct,
             "incorrect_count": incorrect,
             "no_selection_count": no_selection,
             "accuracy_all_trials": correct / total if total else None,
             "accuracy_when_selected": correct / selected_trials if selected_trials else None,
             "selection_completion_rate": selected_trials / total if total else None,
-            "dwell_cancellation_count": sum(int(item["dwell_cancellations"]) for item in results),
+            "dwell_cancellation_count": sum(
+                int(item["dwell_cancellations"]) for item in scored_results
+            ),
             "selected_response_seconds": _summary(response_times),
             "correct_response_seconds": _summary(correct_response_times),
             "per_requested_region": per_region,
             "confusion_matrix": confusion,
             "trials": results,
         },
+        "session_region_correction": corrector.artifact() if corrector is not None else None,
         "privacy": {
             "video_persisted": False,
             "frames_persisted": False,
@@ -421,6 +530,10 @@ def _build_report(
             "Requested regions are technical ground truth prompts, not communication intents.",
             "One local session does not establish cross-session or clinical reliability.",
             "Dwell and timing values are experimental engineering defaults.",
+            (
+                "The session-local correction is trained on the practice block from this "
+                "same run and is not evidence of cross-session generalization."
+            ),
             "The test does not control a cursor, AAC board or external system.",
         ],
     }

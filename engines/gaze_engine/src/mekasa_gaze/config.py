@@ -237,12 +237,16 @@ class InteractionConfig:
     cooldown_seconds: float
     hysteresis_margin: float
     validation_blocks: int
+    practice_blocks: int
     target_order_seed: int
     tracking_stable_seconds: float
     countdown_seconds: float
     cue_seconds: float
+    practice_measurement_seconds: float
     response_timeout_seconds: float
     feedback_seconds: float
+    correction_ridge_alpha: float
+    min_correction_samples_per_region: int
 
     @classmethod
     def load(cls, path: Path) -> InteractionConfig:
@@ -255,12 +259,16 @@ class InteractionConfig:
             cooldown_seconds=float(selection["cooldown_seconds"]),
             hysteresis_margin=float(selection["hysteresis_margin"]),
             validation_blocks=int(validation["blocks"]),
+            practice_blocks=int(validation["practice_blocks"]),
             target_order_seed=int(validation["target_order_seed"]),
             tracking_stable_seconds=float(validation["tracking_stable_seconds"]),
             countdown_seconds=float(validation["countdown_seconds"]),
             cue_seconds=float(validation["cue_seconds"]),
+            practice_measurement_seconds=float(validation["practice_measurement_seconds"]),
             response_timeout_seconds=float(validation["response_timeout_seconds"]),
             feedback_seconds=float(validation["feedback_seconds"]),
+            correction_ridge_alpha=float(validation["correction_ridge_alpha"]),
+            min_correction_samples_per_region=int(validation["min_correction_samples_per_region"]),
         )
         config.validate()
         return config
@@ -274,10 +282,13 @@ class InteractionConfig:
             raise ValueError("hysteresis_margin must be in [0, 0.25)")
         if self.validation_blocks < 2:
             raise ValueError("controlled validation requires at least two blocks")
+        if not 1 <= self.practice_blocks < self.validation_blocks:
+            raise ValueError("practice_blocks must be positive and less than total blocks")
         durations = (
             self.tracking_stable_seconds,
             self.countdown_seconds,
             self.cue_seconds,
+            self.practice_measurement_seconds,
             self.response_timeout_seconds,
             self.feedback_seconds,
         )
@@ -285,3 +296,7 @@ class InteractionConfig:
             raise ValueError("controlled validation durations must be positive")
         if self.response_timeout_seconds <= self.dwell_seconds:
             raise ValueError("response timeout must exceed dwell duration")
+        if self.correction_ridge_alpha < 0.0:
+            raise ValueError("correction_ridge_alpha must be non-negative")
+        if self.min_correction_samples_per_region < 1:
+            raise ValueError("min_correction_samples_per_region must be positive")

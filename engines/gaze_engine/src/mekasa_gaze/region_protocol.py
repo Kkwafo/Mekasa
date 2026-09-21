@@ -18,6 +18,7 @@ class RegionTrialStage(StrEnum):
 
 
 class RegionTrialOutcome(StrEnum):
+    PRACTICE = "PRACTICE"
     CORRECT = "CORRECT"
     INCORRECT = "INCORRECT"
     NO_SELECTION = "NO_SELECTION"
@@ -42,6 +43,7 @@ class RegionProtocolSnapshot:
     stage_remaining_seconds: float | None
     completed_trial: RegionTrialResult | None = None
     completed: bool = False
+    is_practice: bool = False
 
 
 class ControlledRegionProtocol:
@@ -109,6 +111,22 @@ class ControlledRegionProtocol:
         if self._stage is RegionTrialStage.RESPONSE:
             assert self._response_started_at is not None
             response_elapsed = now_seconds - self._response_started_at
+            if block_index <= self._config.practice_blocks:
+                if response_elapsed >= self._config.practice_measurement_seconds:
+                    result = RegionTrialResult(
+                        self._trial_index,
+                        block_index,
+                        requested,
+                        None,
+                        RegionTrialOutcome.PRACTICE,
+                        None,
+                    )
+                    return self._start_feedback(now_seconds, result)
+                return self._snapshot(
+                    requested,
+                    block_index,
+                    self._config.practice_measurement_seconds - response_elapsed,
+                )
             if selected is not None:
                 outcome = (
                     RegionTrialOutcome.CORRECT
@@ -207,6 +225,7 @@ class ControlledRegionProtocol:
             result.block_index,
             self._config.feedback_seconds,
             completed_trial=result,
+            is_practice=result.block_index <= self._config.practice_blocks,
         )
 
     def _snapshot(
@@ -221,4 +240,5 @@ class ControlledRegionProtocol:
             completed_trial=(
                 self._feedback_result if self._stage is RegionTrialStage.FEEDBACK else None
             ),
+            is_practice=block_index <= self._config.practice_blocks,
         )

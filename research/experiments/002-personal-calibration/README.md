@@ -8,10 +8,10 @@ This is technical research tooling. It is not a generic gaze model, clinical val
 
 ## Required input
 
-Calibration accepts only a completed schema-3 Guided Visual Validation report with:
+Calibration accepts only a completed schema-4 Guided Visual Validation report with:
 
 - three seeded-randomized discrimination blocks;
-- all five targets in every block;
+- all nine targets in every block, including the four diagonal region centers;
 - separate transition, acquisition and measurement intervals;
 - gaze-valid derived features;
 - active local audio prompts when required by configuration.
@@ -30,7 +30,7 @@ C:\Projects\Mekasa\work\bootstrap\Scripts\uv.exe run --locked mekasa-guided-vali
 
 The installed `Microsoft Helena Desktop` Spanish voice announces preparation, countdown, direction changes, head-movement instructions and completion. Direction words are spoken during the transition interval, before measurement. When audio is active, long visual instructions and target-name labels are hidden from the test area so reading them does not intentionally contaminate eye position. Text remains available as a fallback when audio is disabled.
 
-The three blocks contain CENTER, LEFT, RIGHT, UP and DOWN exactly once each, in a deterministic randomized order recorded in the report. A measured 3.15-second worst-case local speech duration motivated a 4-second transition-plus-acquisition guard before measurement. The default sequence takes roughly 2 minutes 10 seconds after camera/model startup.
+The three blocks contain CENTER, LEFT, RIGHT, UP, DOWN and the four diagonal region centers exactly once each, in a deterministic randomized order recorded in the report. A measured 3.15-second worst-case local speech duration motivated a 4-second transition-plus-acquisition guard before measurement. The default sequence takes roughly 3 minutes 35 seconds after camera/model startup.
 
 ### 2. Fit and evaluate the personal calibration
 
@@ -65,7 +65,7 @@ C:\Projects\Mekasa\work\calibration\personal-gaze-model.json
 C:\Projects\Mekasa\work\bootstrap\Scripts\uv.exe run --locked mekasa-live-evaluation
 ```
 
-The window shows five reference positions, a smoothed predicted crosshair and the nearest target label. Invalid/closed-eye/tracking-invalid frames clear the prediction rather than carrying an old value forward. Press `Q` or `Esc` to stop.
+The window shows nine reference positions, a smoothed predicted crosshair and the nearest target label. Invalid/closed-eye/tracking-invalid frames clear the prediction rather than carrying an old value forward. Press `Q` or `Esc` to stop.
 
 A loading screen is shown while the camera and landmark model initialize. Camera-relative face-size guidance remains visible: keep the placement in `DISTANCIA CORRECTA`; changing distance after calibration can shift predictions even though face size is one of the model inputs.
 

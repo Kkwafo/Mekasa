@@ -53,6 +53,10 @@ class TargetName(StrEnum):
     RIGHT = "RIGHT"
     UP = "UP"
     DOWN = "DOWN"
+    TOP_LEFT = "TOP_LEFT"
+    TOP_RIGHT = "TOP_RIGHT"
+    BOTTOM_LEFT = "BOTTOM_LEFT"
+    BOTTOM_RIGHT = "BOTTOM_RIGHT"
 
 
 @dataclass(frozen=True, slots=True)

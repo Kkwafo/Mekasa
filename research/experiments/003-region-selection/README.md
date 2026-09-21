@@ -6,7 +6,7 @@ Experiment 003 tests the interaction mechanics needed after personal calibration
 
 ## Run locally
 
-First create a current guided report and calibration as described in Experiment 002. Then run:
+First create a current schema-4 nine-target guided report and calibration as described in Experiment 002. Older five-target calibration models are intentionally rejected because they do not directly measure the diagonal region centers. Then run:
 
 ```powershell
 C:\Projects\Mekasa\work\bootstrap\Scripts\uv.exe run --locked mekasa-region-evaluation

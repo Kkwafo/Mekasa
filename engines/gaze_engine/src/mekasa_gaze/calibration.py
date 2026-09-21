@@ -263,9 +263,10 @@ def write_calibration_artifact(artifact: dict[str, Any], path: Path) -> None:
 
 
 def _validate_report(report: dict[str, Any], config: CalibrationConfig) -> None:
-    if int(report.get("schema_version", 0)) < 3:
+    if int(report.get("schema_version", 0)) < 4:
         raise ValueError(
-            "Calibration requires a schema 3 guided report with repeated randomized blocks"
+            "Calibration requires a schema 4 guided report with repeated randomized "
+            "nine-target blocks"
         )
     protocol = report.get("protocol", {})
     if not protocol.get("completed") or protocol.get("aborted_by_operator"):

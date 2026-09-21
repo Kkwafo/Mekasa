@@ -21,6 +21,10 @@ def test_guided_targets_are_normalized_and_complete() -> None:
     assert config.target(TargetName.RIGHT).normalized_x == pytest.approx(0.85)
     assert config.target(TargetName.UP).normalized_y == pytest.approx(0.15)
     assert config.target(TargetName.DOWN).normalized_y == pytest.approx(0.85)
+    assert config.target(TargetName.TOP_LEFT).normalized_x == pytest.approx(0.25)
+    assert config.target(TargetName.TOP_LEFT).normalized_y == pytest.approx(0.25)
+    assert config.target(TargetName.BOTTOM_RIGHT).normalized_x == pytest.approx(0.75)
+    assert config.target(TargetName.BOTTOM_RIGHT).normalized_y == pytest.approx(0.75)
 
 
 def test_invalid_target_coordinate_is_rejected() -> None:

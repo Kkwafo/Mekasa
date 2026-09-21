@@ -61,6 +61,17 @@ def test_audio_target_is_announced_once_per_segment() -> None:
     assert speech.spoken == ["Izquierda"]
 
 
+def test_audio_announces_diagonal_without_requiring_visual_text() -> None:
+    speech = FakeSpeech()
+    controller = AudioInstructionController(speech)
+
+    controller.update(
+        _snapshot(MeasurementStage.TRANSITION, target=TargetName.TOP_RIGHT, segment_index=4)
+    )
+
+    assert speech.spoken == ["Arriba a la derecha"]
+
+
 def test_countdown_announces_each_number_once() -> None:
     speech = FakeSpeech()
     controller = AudioInstructionController(speech)

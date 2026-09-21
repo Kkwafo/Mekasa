@@ -78,3 +78,20 @@ y = 0.15
 [targets.DOWN]
 x = 0.50
 y = 0.85
+
+# Diagonal targets directly sample the centers used by Experiment 003.
+[targets.TOP_LEFT]
+x = 0.25
+y = 0.25
+
+[targets.TOP_RIGHT]
+x = 0.75
+y = 0.25
+
+[targets.BOTTOM_LEFT]
+x = 0.25
+y = 0.75
+
+[targets.BOTTOM_RIGHT]
+x = 0.75
+y = 0.75

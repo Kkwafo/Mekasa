@@ -24,6 +24,10 @@ def _report() -> dict[str, object]:
         TargetName.RIGHT: (0.85, 0.5),
         TargetName.UP: (0.5, 0.15),
         TargetName.DOWN: (0.5, 0.85),
+        TargetName.TOP_LEFT: (0.25, 0.25),
+        TargetName.TOP_RIGHT: (0.75, 0.25),
+        TargetName.BOTTOM_LEFT: (0.25, 0.75),
+        TargetName.BOTTOM_RIGHT: (0.75, 0.75),
     }
     observations: list[dict[str, object]] = []
     for block in (1, 2, 3):
@@ -52,7 +56,7 @@ def _report() -> dict[str, object]:
                     }
                 )
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "experiment": {
             "audio": {"active": True},
             "source": {"commit": "test"},
@@ -123,11 +127,11 @@ def test_calibration_excludes_observations_outside_recorded_placement_band() -> 
 
 def test_calibration_rejects_legacy_single_block_report() -> None:
     report = _report()
-    report["schema_version"] = 2
+    report["schema_version"] = 3
 
     try:
         calibrate_from_report(report, _config())
     except ValueError as error:
-        assert "schema 3" in str(error)
+        assert "schema 4" in str(error)
     else:
         raise AssertionError("legacy report should not be accepted for calibration")

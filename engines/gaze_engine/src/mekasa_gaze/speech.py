@@ -225,6 +225,10 @@ def _cue(snapshot: ProtocolSnapshot) -> tuple[str, str] | None:
                 TargetName.RIGHT: "Derecha",
                 TargetName.UP: "Arriba",
                 TargetName.DOWN: "Abajo",
+                TargetName.TOP_LEFT: "Arriba a la izquierda",
+                TargetName.TOP_RIGHT: "Arriba a la derecha",
+                TargetName.BOTTOM_LEFT: "Abajo a la izquierda",
+                TargetName.BOTTOM_RIGHT: "Abajo a la derecha",
             }[snapshot.target.name]
         return f"segment:{snapshot.segment_index}", text
     if snapshot.completed:

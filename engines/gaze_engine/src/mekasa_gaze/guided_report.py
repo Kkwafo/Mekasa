@@ -139,7 +139,7 @@ class GuidedReportBuilder:
         measurement.update(summarize_guided_observations(observations, config, blink_events))
         report.update(
             {
-                "schema_version": 4,
+                "schema_version": 5,
                 "experiment": experiment,
                 "protocol": {
                     "completed": completed,

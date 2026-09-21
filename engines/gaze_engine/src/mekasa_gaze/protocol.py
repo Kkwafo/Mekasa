@@ -38,11 +38,17 @@ class GuidedProtocol:
     def _build_segments(config: GuidedValidationConfig) -> tuple[ProtocolSegment, ...]:
         center = config.target(TargetName.CENTER)
         generator = random.Random(config.target_order_seed)
-        discrimination: list[ProtocolSegment] = []
+        segments: list[ProtocolSegment] = [
+            ProtocolSegment(
+                ExperimentPhase.CENTER_STABILITY,
+                center,
+                config.center_stability_seconds,
+            )
+        ]
         for block_index in range(1, config.discrimination_blocks + 1):
             names = list(TargetName)
             generator.shuffle(names)
-            discrimination.extend(
+            segments.extend(
                 ProtocolSegment(
                     ExperimentPhase.GAZE_DISCRIMINATION,
                     config.target(name),
@@ -51,19 +57,16 @@ class GuidedProtocol:
                 )
                 for name in names
             )
-        return (
-            ProtocolSegment(
-                ExperimentPhase.CENTER_STABILITY,
-                center,
-                config.center_stability_seconds,
-            ),
-            *discrimination,
+        segments.extend(
             ProtocolSegment(
                 ExperimentPhase.HEAD_MOVEMENT,
                 center,
                 config.head_movement_seconds,
-            ),
+                block_index=block_index,
+            )
+            for block_index in range(1, config.discrimination_blocks + 1)
         )
+        return tuple(segments)
 
     @property
     def planned_measurement_segments(self) -> tuple[ProtocolSegment, ...]:
@@ -76,6 +79,7 @@ class GuidedProtocol:
                 segment.target.name
                 for segment in self._segments
                 if segment.block_index == block_index
+                and segment.phase is ExperimentPhase.GAZE_DISCRIMINATION
             )
             for block_index in range(1, self._config.discrimination_blocks + 1)
         )

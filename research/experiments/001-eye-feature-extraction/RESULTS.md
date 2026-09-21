@@ -155,3 +155,25 @@ Camera-relative face width drifted from a block-1 median of 0.3192 to 0.3007 in 
 The preparation UI now gates protocol start on an experimental detected-face-width band of 0.30–0.45 and displays `ACERCATE UN POCO`, `DISTANCIA CORRECTA` or `ALEJATE UN POCO`. This band is camera-relative engineering guidance derived to catch the observed drift, not a clinical or ergonomic recommendation.
 
 The exact latest report is preserved in `results/2026-09-20-windows-i5-8250u-audio-guided-corrected-02.json` with SHA-256 `8bfd186d99c13e5f57bb1a035f1cb651f8213ef861eebed027e6dd971373850f`. It contains derived features only and no video, images, raw facial landmarks or participant name.
+
+## Measured run: 2026-09-21, nine-target validation 03
+
+Source commit: `fc453996409bb76306bba3851b3085777bf69ada` (clean). Schema 4 directly added the four diagonal centers required by Experiment 003. The model trained on target blocks 1–2 and held out target block 3.
+
+| Metric | Observed value |
+| --- | ---: |
+| Held-out target samples | 806 |
+| Closest-target hit rate | 88.9578% |
+| Pixel error median / P90 | 59.9926 / 131.2800 px |
+| Predictions outside the screen | 1.8610% |
+| Best target median | CENTER, 23.6687 px |
+| Weakest target median | BOTTOM_RIGHT, 128.5040 px |
+| TOP_LEFT hit rate / median error | 47.0588% / 110.4793 px |
+
+This materially improved the earlier five-target global median and added direct diagonal evidence, but it did not solve natural head movement. During target collection the observed yaw range was only approximately −1.72° to 0.04°. During the center-fixation head-movement phase it expanded to approximately −8.93° to 5.04°. Schema 4 recorded those frames but the calibrator did not use them.
+
+A retrospective evaluation of the produced full-feature model on 149 placement-valid head-movement center samples measured a 1,182.80 px median error, 1,524.19 px P90 and 81.88% predictions outside screen bounds. This directly supports the operator's report that changing head direction caused the live mapping to become misconfigured. The fixed-head held-out score must not be interpreted as head-movement robustness.
+
+Schema 5 therefore replaces the single diagnostic movement phase with three blocked center-fixation movement phases. Blocks 1–2 contribute empirical movement anchors; block 3 remains held out and receives a separate error report. Approximate pose angles remain diagnostics rather than direct regression features because the schema-4 model extrapolated them far beyond their target-training range. This is still limited to center fixation and is not evidence for every gaze/pose combination.
+
+The exact local report is `work/guided-validation/history/guided-validation-20260921T190555.628492Z.json`, SHA-256 `ebc87f00045d90ffdf0fba8617d5810504b2eed464f1bab95c0bc02a6f2c2ea1`. The derived model SHA-256 is `aedd884728ce2f7a56db1b7f0e3211b8cc28acf0fc512ac5c8a25f8223fc94ef`. Neither artifact contains video, images or raw facial landmarks.

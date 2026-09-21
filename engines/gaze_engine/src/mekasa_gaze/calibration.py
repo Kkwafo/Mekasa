@@ -32,6 +32,11 @@ class CalibrationModel:
     def from_artifact(cls, artifact: dict[str, Any]) -> CalibrationModel:
         if artifact.get("kind") != "PERSONAL_GAZE_RIDGE_EXPERIMENTAL":
             raise ValueError("Unsupported calibration model kind")
+        if int(artifact.get("schema_version", 0)) < 2:
+            raise ValueError(
+                "Calibration model predates blocked head-movement validation; "
+                "run guided validation and calibration again"
+            )
         feature_names = tuple(str(name) for name in artifact["feature_names"])
         preprocessing = artifact["preprocessing"]
         model = artifact["model"]
@@ -105,12 +110,29 @@ def calibrate_from_report(
     report_sha256: str | None = None,
 ) -> dict[str, Any]:
     _validate_report(report, config)
-    records = _calibration_records(report, config.feature_names)
+    gaze_records = _calibration_records(
+        report,
+        config.feature_names,
+        phase="GAZE_DISCRIMINATION",
+    )
+    head_movement_records = _calibration_records(
+        report,
+        config.feature_names,
+        phase="HEAD_MOVEMENT",
+    )
+    if any(record[1] is not TargetName.CENTER for record in head_movement_records):
+        raise ValueError("Head-movement calibration records must use the CENTER target")
     validation_block = config.validation_block_index
-    training = [record for record in records if record[0] != validation_block]
-    validation = [record for record in records if record[0] == validation_block]
+    gaze_training = [record for record in gaze_records if record[0] != validation_block]
+    validation = [record for record in gaze_records if record[0] == validation_block]
+    head_movement_training = [
+        record for record in head_movement_records if record[0] != validation_block
+    ]
+    head_movement_validation = [
+        record for record in head_movement_records if record[0] == validation_block
+    ]
     _validate_sample_counts(
-        training,
+        gaze_training,
         config.min_train_samples_per_target,
         "training",
     )
@@ -119,14 +141,31 @@ def calibrate_from_report(
         config.min_validation_samples_per_target,
         "validation",
     )
+    _validate_record_count(
+        head_movement_training,
+        config.min_head_movement_train_samples,
+        "head-movement training",
+    )
+    _validate_record_count(
+        head_movement_validation,
+        config.min_head_movement_validation_samples,
+        "head-movement validation",
+    )
 
+    training = [*gaze_training, *head_movement_training]
     train_x, train_y, train_targets = _arrays(training)
     validation_x, validation_y, validation_targets = _arrays(validation)
+    head_validation_x, head_validation_y, head_validation_targets = _arrays(
+        head_movement_validation
+    )
     if np.any(np.all(~np.isfinite(train_x), axis=0)):
         raise ValueError("A calibration feature is unavailable in every training sample")
     feature_mean = np.nanmean(train_x, axis=0)
     imputed_train_x = np.where(np.isfinite(train_x), train_x, feature_mean)
     imputed_validation_x = np.where(np.isfinite(validation_x), validation_x, feature_mean)
+    imputed_head_validation_x = np.where(
+        np.isfinite(head_validation_x), head_validation_x, feature_mean
+    )
     feature_scale = np.std(imputed_train_x, axis=0)
     feature_scale = np.where(feature_scale > 1e-9, feature_scale, 1.0)
     standardized = (imputed_train_x - feature_mean) / feature_scale
@@ -141,10 +180,14 @@ def calibrate_from_report(
     train_predictions = standardized @ weights + output_intercept
     validation_predictions = ((imputed_validation_x - feature_mean) / feature_scale) @ weights
     validation_predictions += output_intercept
+    head_validation_predictions = (
+        (imputed_head_validation_x - feature_mean) / feature_scale
+    ) @ weights
+    head_validation_predictions += output_intercept
     canvas_width, canvas_height = _test_area_dimensions(report)
 
     artifact: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "kind": "PERSONAL_GAZE_RIDGE_EXPERIMENTAL",
         "created_at_utc": datetime.now(UTC).isoformat(),
         "source": source_revision(),
@@ -171,11 +214,13 @@ def calibrate_from_report(
             for name, point in targets.items()
         ],
         "split": {
-            "strategy": "held_out_complete_protocol_block",
-            "training_blocks": sorted({record[0] for record in training}),
+            "strategy": "held_out_complete_protocol_block_with_head_movement_center",
+            "training_blocks": sorted({record[0] for record in gaze_training}),
             "validation_block": validation_block,
-            "training_sample_counts": _sample_counts(training),
+            "training_sample_counts": _sample_counts(gaze_training),
             "validation_sample_counts": _sample_counts(validation),
+            "head_movement_training_sample_count": len(head_movement_training),
+            "head_movement_validation_sample_count": len(head_movement_validation),
         },
         "metrics": {
             "training": _prediction_metrics(
@@ -194,6 +239,14 @@ def calibrate_from_report(
                 canvas_width,
                 canvas_height,
             ),
+            "held_out_head_movement_center": _prediction_metrics(
+                head_validation_y,
+                head_validation_predictions,
+                head_validation_targets,
+                targets,
+                canvas_width,
+                canvas_height,
+            ),
         },
         "privacy": {
             "video_persisted": False,
@@ -207,6 +260,10 @@ def calibrate_from_report(
             (
                 "Held-out blocks reduce adjacent-frame leakage but do not establish "
                 "session-to-session repeatability."
+            ),
+            (
+                "Head-movement validation measures only maintaining gaze on CENTER while "
+                "moving naturally; it does not validate every gaze target at every pose."
             ),
             "Displayed targets are prompts and do not prove fixation.",
             (
@@ -263,10 +320,10 @@ def write_calibration_artifact(artifact: dict[str, Any], path: Path) -> None:
 
 
 def _validate_report(report: dict[str, Any], config: CalibrationConfig) -> None:
-    if int(report.get("schema_version", 0)) < 4:
+    if int(report.get("schema_version", 0)) < 5:
         raise ValueError(
-            "Calibration requires a schema 4 guided report with repeated randomized "
-            "nine-target blocks"
+            "Calibration requires a schema 5 guided report with repeated randomized "
+            "nine-target and head-movement blocks"
         )
     protocol = report.get("protocol", {})
     if not protocol.get("completed") or protocol.get("aborted_by_operator"):
@@ -277,7 +334,10 @@ def _validate_report(report: dict[str, Any], config: CalibrationConfig) -> None:
 
 
 def _calibration_records(
-    report: dict[str, Any], feature_names: tuple[str, ...]
+    report: dict[str, Any],
+    feature_names: tuple[str, ...],
+    *,
+    phase: str,
 ) -> list[tuple[int, TargetName, npt.NDArray[np.float64], tuple[float, float]]]:
     records: list[tuple[int, TargetName, npt.NDArray[np.float64], tuple[float, float]]] = []
     report_config = report["protocol"]["configuration"]
@@ -285,7 +345,7 @@ def _calibration_records(
     max_face_width = report_config.get("max_face_width")
     for item in report["observations"]:
         if (
-            item["phase"] != "GAZE_DISCRIMINATION"
+            item["phase"] != phase
             or item["measurement_stage"] != "MEASUREMENT"
             or item.get("block_index") is None
             or item.get("target") is None
@@ -310,7 +370,7 @@ def _calibration_records(
             )
         )
     if not records:
-        raise ValueError("Guided report has no usable calibration observations")
+        raise ValueError(f"Guided report has no usable {phase} calibration observations")
     return records
 
 
@@ -375,6 +435,17 @@ def _validate_sample_counts(
     if missing:
         raise ValueError(
             f"Insufficient {split_name} samples per target; need {minimum}, observed {missing}"
+        )
+
+
+def _validate_record_count(
+    records: list[tuple[int, TargetName, npt.NDArray[np.float64], tuple[float, float]]],
+    minimum: int,
+    split_name: str,
+) -> None:
+    if len(records) < minimum:
+        raise ValueError(
+            f"Insufficient {split_name} samples; need {minimum}, observed {len(records)}"
         )
 
 

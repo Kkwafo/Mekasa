@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
 from mekasa_gaze.calibration import CalibrationModel, calibrate_from_report
 from mekasa_gaze.config import CalibrationConfig
 from mekasa_gaze.domain import TargetName
@@ -11,6 +15,8 @@ def _config() -> CalibrationConfig:
         validation_block_index=3,
         min_train_samples_per_target=2,
         min_validation_samples_per_target=2,
+        min_head_movement_train_samples=2,
+        min_head_movement_validation_samples=2,
         require_audio_prompts=True,
         live_smoothing_alpha=0.25,
         feature_names=("left_iris_x", "right_iris_y"),
@@ -55,8 +61,31 @@ def _report() -> dict[str, object]:
                         "head_pose": None,
                     }
                 )
+        for repeat in range(3):
+            offset = (repeat - 1) * 0.001
+            observations.append(
+                {
+                    "phase": "HEAD_MOVEMENT",
+                    "measurement_stage": "MEASUREMENT",
+                    "gaze_validity": "GAZE_VALID",
+                    "left_eye_state": "OPEN",
+                    "right_eye_state": "OPEN",
+                    "block_index": block,
+                    "target": {
+                        "name": TargetName.CENTER.value,
+                        "normalized_x": 0.5,
+                        "normalized_y": 0.5,
+                    },
+                    "features": {
+                        "left_iris_x": 0.5 + offset,
+                        "right_iris_y": 0.5 - offset,
+                        "face_width": 0.35,
+                    },
+                    "head_pose": None,
+                }
+            )
     return {
-        "schema_version": 4,
+        "schema_version": 5,
         "experiment": {
             "audio": {"active": True},
             "source": {"commit": "test"},
@@ -88,6 +117,9 @@ def test_ridge_calibration_holds_out_complete_block() -> None:
     metrics = artifact["metrics"]["held_out_validation"]
     assert metrics["closest_target_hit_rate"] == 1.0
     assert metrics["normalized_error"]["median"] < 0.002
+    assert artifact["metrics"]["held_out_head_movement_center"]["sample_count"] == 3
+    assert artifact["split"]["head_movement_training_sample_count"] == 6
+    assert artifact["split"]["head_movement_validation_sample_count"] == 3
     model = CalibrationModel.from_artifact(artifact)
     assert set(model.targets) == set(TargetName)
 
@@ -127,11 +159,28 @@ def test_calibration_excludes_observations_outside_recorded_placement_band() -> 
 
 def test_calibration_rejects_legacy_single_block_report() -> None:
     report = _report()
-    report["schema_version"] = 3
+    report["schema_version"] = 4
 
     try:
         calibrate_from_report(report, _config())
     except ValueError as error:
-        assert "schema 4" in str(error)
+        assert "schema 5" in str(error)
     else:
         raise AssertionError("legacy report should not be accepted for calibration")
+
+
+def test_calibration_config_uses_head_robust_features_and_thresholds() -> None:
+    config = CalibrationConfig.load(Path("config/experiment-002.toml"))
+
+    assert config.min_head_movement_train_samples == 40
+    assert config.min_head_movement_validation_samples == 20
+    assert "face_center_x" in config.feature_names
+    assert "head_yaw_degrees" not in config.feature_names
+
+
+def test_calibration_model_rejects_pre_head_movement_artifact() -> None:
+    artifact = calibrate_from_report(_report(), _config())
+    artifact["schema_version"] = 1
+
+    with pytest.raises(ValueError, match="predates blocked head-movement"):
+        CalibrationModel.from_artifact(artifact)

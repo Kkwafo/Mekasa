@@ -85,6 +85,12 @@ def test_protocol_contains_required_discrimination_targets() -> None:
     assert len(protocol.planned_target_orders) == config.discrimination_blocks
     assert all(set(order) == set(TargetName) for order in protocol.planned_target_orders)
     assert protocol.planned_target_orders == _protocol().planned_target_orders
+    head_blocks = [
+        segment.block_index
+        for segment in protocol.planned_measurement_segments
+        if segment.phase is ExperimentPhase.HEAD_MOVEMENT
+    ]
+    assert head_blocks == [1, 2, 3]
 
 
 def test_phase_remaining_covers_all_discrimination_targets() -> None:

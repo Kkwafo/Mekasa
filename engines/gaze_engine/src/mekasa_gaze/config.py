@@ -194,6 +194,8 @@ class CalibrationConfig:
     validation_block_index: int
     min_train_samples_per_target: int
     min_validation_samples_per_target: int
+    min_head_movement_train_samples: int
+    min_head_movement_validation_samples: int
     require_audio_prompts: bool
     live_smoothing_alpha: float
     feature_names: tuple[str, ...]
@@ -209,6 +211,10 @@ class CalibrationConfig:
             validation_block_index=int(calibration["validation_block_index"]),
             min_train_samples_per_target=int(calibration["min_train_samples_per_target"]),
             min_validation_samples_per_target=int(calibration["min_validation_samples_per_target"]),
+            min_head_movement_train_samples=int(calibration["min_head_movement_train_samples"]),
+            min_head_movement_validation_samples=int(
+                calibration["min_head_movement_validation_samples"]
+            ),
             require_audio_prompts=bool(calibration["require_audio_prompts"]),
             live_smoothing_alpha=float(live["smoothing_alpha"]),
             feature_names=tuple(str(name) for name in calibration["feature_names"]),
@@ -225,6 +231,10 @@ class CalibrationConfig:
             raise ValueError("min_train_samples_per_target must be positive")
         if self.min_validation_samples_per_target < 1:
             raise ValueError("min_validation_samples_per_target must be positive")
+        if self.min_head_movement_train_samples < 1:
+            raise ValueError("min_head_movement_train_samples must be positive")
+        if self.min_head_movement_validation_samples < 1:
+            raise ValueError("min_head_movement_validation_samples must be positive")
         if not 0.0 < self.live_smoothing_alpha <= 1.0:
             raise ValueError("smoothing_alpha must be in (0, 1]")
         if not self.feature_names or len(set(self.feature_names)) != len(self.feature_names):

@@ -8,15 +8,16 @@ This is technical research tooling. It is not a generic gaze model, clinical val
 
 ## Required input
 
-Calibration accepts only a completed schema-4 Guided Visual Validation report with:
+Calibration accepts only a completed schema-5 Guided Visual Validation report with:
 
 - three seeded-randomized discrimination blocks;
 - all nine targets in every block, including the four diagonal region centers;
+- three center-fixation head-movement blocks with the same train/held-out split;
 - separate transition, acquisition and measurement intervals;
 - gaze-valid derived features;
 - active local audio prompts when required by configuration.
 
-The first two blocks train the default model. The complete third block remains held out for validation. Frames from the held-out block never participate in fitting or feature standardization. This reduces adjacent-frame leakage but does not measure repeatability across different sessions or days.
+The first two target blocks and first two center head-movement blocks train the default model. Both complete third blocks remain held out and are reported separately. Frames from either held-out block never participate in fitting or feature standardization. This reduces adjacent-frame leakage but does not measure repeatability across different sessions or days.
 
 ## End-to-end local workflow
 
@@ -30,7 +31,7 @@ C:\Projects\Mekasa\work\bootstrap\Scripts\uv.exe run --locked mekasa-guided-vali
 
 The installed `Microsoft Helena Desktop` Spanish voice announces preparation, countdown, direction changes, head-movement instructions and completion. Direction words are spoken during the transition interval, before measurement. When audio is active, long visual instructions and target-name labels are hidden from the test area so reading them does not intentionally contaminate eye position. Text remains available as a fallback when audio is disabled.
 
-The three blocks contain CENTER, LEFT, RIGHT, UP, DOWN and the four diagonal region centers exactly once each, in a deterministic randomized order recorded in the report. A measured 3.15-second worst-case local speech duration motivated a 4-second transition-plus-acquisition guard before measurement. The default sequence takes roughly 3 minutes 35 seconds after camera/model startup.
+The three target blocks contain CENTER, LEFT, RIGHT, UP, DOWN and the four diagonal region centers exactly once each, in a deterministic randomized order recorded in the report. They are followed by three audio-guided periods where the person keeps looking at the center while moving the head naturally and comfortably. A measured 3.15-second worst-case local speech duration motivated a 4-second transition-plus-acquisition guard before measurement. The default sequence takes roughly 4 minutes after camera/model startup.
 
 ### 2. Fit and evaluate the personal calibration
 
@@ -38,7 +39,7 @@ The three blocks contain CENTER, LEFT, RIGHT, UP, DOWN and the four diagonal reg
 C:\Projects\Mekasa\work\bootstrap\Scripts\uv.exe run --locked mekasa-calibrate
 ```
 
-The baseline is a closed-form ridge regression with independent normalized X/Y outputs. Inputs are both iris coordinates, coarse face position/size and approximate head pose. Feature standardization is learned only from training blocks.
+The baseline is a closed-form ridge regression with independent normalized X/Y outputs. Inputs are both iris coordinates and coarse face position/size. Approximate head-pose angles remain in the diagnostic report but are not direct regression inputs: the 2026-09-21 run showed extreme extrapolation when angles observed only during fixed-head target collection were used at natural head poses. Center head-movement samples instead anchor the mapping empirically. Feature standardization is learned only from training blocks.
 
 For reports produced with placement guidance, frames whose detected face width falls outside the recorded preparation band are excluded from fitting and held-out evaluation. The command fails honestly if that leaves too few samples for any target.
 
@@ -48,6 +49,7 @@ The command prints and stores:
 - mean, median, P90 and maximum normalized Euclidean error;
 - the same error converted to test-area pixels;
 - closest-target hit rate globally and per target;
+- held-out center error during natural head movement, reported separately;
 - fraction of raw predictions outside normalized screen bounds;
 - source report hash, configuration, source revision and limitations.
 

@@ -36,6 +36,8 @@ _PERSISTED_FEATURES = (
     "left_iris_y",
     "right_iris_x",
     "right_iris_y",
+    "left_iris_v",
+    "right_iris_v",
     "face_center_x",
     "face_center_y",
     "face_width",

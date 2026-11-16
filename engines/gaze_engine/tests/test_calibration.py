@@ -7,6 +7,7 @@ import pytest
 
 from mekasa_gaze.core.config import CalibrationConfig
 from mekasa_gaze.core.domain import TargetName
+from mekasa_gaze.core.eye_mode import EyeMode
 from mekasa_gaze.tracking.calibration import CalibrationModel, calibrate_from_report
 
 
@@ -144,6 +145,28 @@ def test_calibration_accepts_one_usable_eye_and_imputes_the_other() -> None:
         artifact["preprocessing"]["closed_or_unusable_eye_iris_imputation"]
         == "training_feature_mean"
     )
+
+
+def test_single_eye_mode_uses_only_that_eye_and_frames_where_it_is_open() -> None:
+    report = _report()
+    observations = report["observations"]
+    assert isinstance(observations, list)
+    left_closed, right_closed = observations[0], observations[1]
+    assert isinstance(left_closed, dict) and isinstance(right_closed, dict)
+    left_closed.update(gaze_validity="GAZE_PARTIAL", left_eye_state="CLOSED")
+    right_closed.update(gaze_validity="GAZE_PARTIAL", right_eye_state="CLOSED")
+
+    left = calibrate_from_report(report, _config(), eye_mode=EyeMode.LEFT)
+    both = calibrate_from_report(report, _config(), eye_mode=EyeMode.BOTH)
+    legacy = calibrate_from_report(report, _config())
+
+    assert left["feature_names"] == ["left_iris_x"]
+    assert left["eye_mode"] == "LEFT"
+    assert left["split"]["training_sample_counts"]["CENTER"] == 5
+    assert both["eye_mode"] == "BOTH"
+    assert both["split"]["training_sample_counts"]["CENTER"] == 4
+    assert legacy["split"]["training_sample_counts"]["CENTER"] == 6
+    assert CalibrationModel.from_artifact(left).eye_mode is EyeMode.LEFT
 
 
 def test_calibration_excludes_observations_outside_configured_acceptance_band() -> None:

@@ -16,6 +16,12 @@ import numpy.typing as npt
 
 from mekasa_gaze.core.config import CalibrationConfig
 from mekasa_gaze.core.domain import EyeState, FeatureObservation, TargetName
+from mekasa_gaze.core.eye_mode import (
+    EyeMode,
+    eye_mode_of_features,
+    eye_signal_usable,
+    feature_names_for_mode,
+)
 from mekasa_gaze.services.runtime import environment, source_revision
 
 
@@ -126,6 +132,11 @@ class CalibrationModel:
         prediction += self.output_intercept
         return float(prediction[0]), float(prediction[1])
 
+    @property
+    def eye_mode(self) -> EyeMode:
+        """Ocular mode this model was trained for, derived from its feature names."""
+        return eye_mode_of_features(self.feature_names)
+
     def nearest_target(self, prediction: tuple[float, float]) -> TargetName:
         """Find the visually presented target closest to the predicted gaze coordinate.
 
@@ -149,6 +160,7 @@ def calibrate_from_report(
     config: CalibrationConfig,
     *,
     report_sha256: str | None = None,
+    eye_mode: EyeMode | None = None,
 ) -> dict[str, Any]:
     """Train a personal ridge regression gaze calibration model from a guided experiment report.
 
@@ -161,6 +173,10 @@ def calibrate_from_report(
         report: Guided experiment report dictionary (Schema 5).
         config: Calibration hyperparameters (ridge_alpha, feature_names, validation_block).
         report_sha256: Optional SHA-256 hash of the input report file for provenance tracking.
+        eye_mode: Optional ocular mode. ``LEFT``/``RIGHT`` train on that eye's features (plus
+            non-ocular features) using only frames where that eye is open; ``BOTH`` uses only
+            frames with both eyes open. ``None`` keeps the legacy behaviour (any open eye,
+            mean imputation of the missing eye).
 
     Returns:
         dict[str, Any]: Fully serializable calibration model artifact dictionary.
@@ -169,16 +185,23 @@ def calibrate_from_report(
         ValueError: If report schema is invalid, required samples are missing, or alpha is invalid.
     """
     _validate_report(report, config)
+    feature_names = (
+        config.feature_names
+        if eye_mode is None
+        else feature_names_for_mode(config.feature_names, eye_mode)
+    )
     gaze_records = _calibration_records(
         report,
-        config.feature_names,
+        feature_names,
+        eye_mode=eye_mode,
         phase="GAZE_DISCRIMINATION",
         min_face_width=config.min_accepted_face_width,
         max_face_width=config.max_accepted_face_width,
     )
     head_movement_records = _calibration_records(
         report,
-        config.feature_names,
+        feature_names,
+        eye_mode=eye_mode,
         phase="HEAD_MOVEMENT",
         min_face_width=config.min_accepted_face_width,
         max_face_width=config.max_accepted_face_width,
@@ -263,7 +286,9 @@ def calibrate_from_report(
             "source_commit": report.get("experiment", {}).get("source", {}).get("commit"),
             "schema_version": report.get("schema_version"),
         },
-        "feature_names": list(config.feature_names),
+        "feature_names": list(feature_names),
+        "eye_mode": eye_mode_of_features(feature_names).value,
+        "eye_mode_frame_filter": "required_eyes_open" if eye_mode else "any_open_eye",
         "preprocessing": {
             "feature_mean": feature_mean.tolist(),
             "feature_scale": feature_scale.tolist(),
@@ -454,6 +479,7 @@ def _calibration_records(
     phase: str,
     min_face_width: float,
     max_face_width: float,
+    eye_mode: EyeMode | None = None,
 ) -> list[tuple[int, TargetName, npt.NDArray[np.float64], tuple[float, float]]]:
     records: list[tuple[int, TargetName, npt.NDArray[np.float64], tuple[float, float]]] = []
     for item in report["observations"]:
@@ -463,6 +489,14 @@ def _calibration_records(
             or item.get("block_index") is None
             or item.get("target") is None
             or not _report_observation_has_usable_eye(item)
+            or (
+                eye_mode is not None
+                and not eye_signal_usable(
+                    eye_mode,
+                    EyeState(item["left_eye_state"]),
+                    EyeState(item["right_eye_state"]),
+                )
+            )
             or not _report_observation_has_valid_placement(
                 item,
                 min_face_width=min_face_width,
@@ -705,6 +739,13 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--config", type=Path, default=Path("config/experiment-002.toml"))
     parser.add_argument(
+        "--eye-mode",
+        type=lambda value: EyeMode(value.upper()),
+        choices=list(EyeMode),
+        default=None,
+        help="BOTH, LEFT or RIGHT (anatomical). Omit for the legacy any-open-eye model.",
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         default=Path("work/calibration/personal-gaze-model.json"),
@@ -729,6 +770,7 @@ def main(argv: list[str] | None = None) -> int:
             report,
             CalibrationConfig.load(args.config),
             report_sha256=_sha256(args.report),
+            eye_mode=args.eye_mode,
         )
         write_calibration_artifact(artifact, args.output)
     except (FileNotFoundError, KeyError, OSError, ValueError, json.JSONDecodeError) as error:
@@ -738,6 +780,7 @@ def main(argv: list[str] | None = None) -> int:
         json.dumps(
             {
                 "model": str(args.output),
+                "eye_mode": artifact["eye_mode"],
                 "split": artifact["split"],
                 "metrics": artifact["metrics"],
                 "warning": "Experimental technical result; not clinical validation.",

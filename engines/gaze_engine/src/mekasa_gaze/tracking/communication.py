@@ -99,18 +99,24 @@ class SessionStats:
     pending_discarded: int = 0
     signal_loss_events: int = 0
 
-    def as_dict(self) -> dict[str, object]:
-        """Serialize counters for JSON reports."""
-        return {
+    def as_dict(self, *, include_options: bool = False) -> dict[str, object]:
+        """Serialize counters for JSON reports.
+
+        Per-option counts reveal what was said, so they are omitted unless explicitly
+        requested (synthetic replays and tests).
+        """
+        result: dict[str, object] = {
             "ticks": self.ticks,
             "ticks_by_state": dict(sorted(self.ticks_by_state.items())),
             "abstentions_by_reason": dict(sorted(self.abstentions_by_reason.items())),
             "confirmations_by_source": dict(sorted(self.confirmations_by_source.items())),
-            "confirmations_by_option": dict(sorted(self.confirmations_by_option.items())),
             "focus_cancellations": self.focus_cancellations,
             "pending_discarded": self.pending_discarded,
             "signal_loss_events": self.signal_loss_events,
         }
+        if include_options:
+            result["confirmations_by_option"] = dict(sorted(self.confirmations_by_option.items()))
+        return result
 
 
 class CommunicationSession:

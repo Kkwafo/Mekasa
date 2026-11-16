@@ -202,7 +202,7 @@ def simulate(
         "eye_mode": mode.value,
         "dwell_seconds": communication.dwell_seconds,
         "segments": results,
-        "session": session.stats.as_dict(),
+        "session": session.stats.as_dict(include_options=True),
         "message_on_screen": session.message,
         "safety": {
             "unsafe_segment_emissions": unsafe_emissions,

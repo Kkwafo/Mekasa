@@ -345,3 +345,10 @@ def test_repository_communication_config_is_valid() -> None:
     root = Path(__file__).resolve().parents[3]
     config = CommunicationConfig.load(root / "config" / "communication.toml")
     assert config.dwell_seconds == pytest.approx(0.9)
+
+
+def test_stats_omit_per_option_counts_by_default() -> None:
+    session = _session()
+    Clock().run(session, YES, 1.3)
+    assert "confirmations_by_option" not in session.stats.as_dict()
+    assert session.stats.as_dict(include_options=True)["confirmations_by_option"] == {"YES": 1}

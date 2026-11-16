@@ -33,9 +33,30 @@ Bloqueos de cero emisión cubiertos por tests deterministas (`tests/test_communi
 - mirada fija sobre la opción ya confirmada;
 - caída de señal a mitad del dwell y confirmación pendiente vencida.
 
+## Sesión guiada con persona, 2026-11-16 (una persona, un equipo, una sesión)
+
+Equipo: Windows 11 Pro 26300, Intel familia 6 modelo 151 (20 CPU lógicas), cámara índice 0 MSMF 640×480.
+
+| Prueba | Resultado | Estado |
+| --- | --- | --- |
+| Validación guiada de 9 puntos (`mekasa-guided-validation`) | Completa, 7109 frames a 30,0 FPS, ancho de cara 0,37–0,42 | medido en Mekasa |
+| Mirada hacia abajo con el umbral de ojo cerrado 0,15 | DOWN: 267/269 frames "ojo cerrado" (EAR mediano 0,12–0,14 contra 0,19 en el centro): el párpado sigue la mirada | medido en Mekasa |
+| Reanálisis con umbral personal 0,09 (`--reclassify-ear-threshold 0.09`, elegido después de ver los datos) | Uso de ambos ojos: DOWN 0,82, BOTTOM_RIGHT 0,85, BOTTOM_LEFT 1,0 | reanálisis exploratorio; validar en otra sesión |
+| Ridge, bloque 3 apartado, 9 blancos (configuración por defecto) | BOTH 40 % / 153 px; LEFT 23 % / 208 px; RIGHT 19 % / 203 px | medido en Mekasa |
+| Mismo modelo, cuadrante 2×2 (frames de blancos diagonales, correlados, 4 posiciones) | BOTH 98,5 % (334 frames); LEFT 51 %; RIGHT 68 % | medido en Mekasa (nivel frame, no selección) |
+| Validación controlada de 4 regiones (BOTH, dwell 1,2 s, corrección de sesión) | 7/8 correctos (87,5 %; IC 95 % Wilson ~53–98 %), 0 sin selección, respuesta ~1,22 s; error TOP_LEFT→BOTTOM_RIGHT; 20 % de frames fuera de distancia | medido en Mekasa |
+| Tablero `mekasa-board` (BOTH, dwell 0,9 s, sin corrección de sesión), 30 s | 4 confirmaciones por mirada, todas en la fila superior; 279 ticks sin señal ocular, 129 sin tracking, 17 enfoques cancelados; captura→decisión p50 15 ms y p95 28 ms; 21,6 FPS procesados | medido en Mekasa |
+
+Hallazgos:
+
+1. **El umbral de ojo cerrado debe ser personal o depender de la mirada vertical.** Con el valor poblacional, mirar hacia abajo cuenta como "ojo cerrado".
+2. **La fila inferior del tablero es casi inalcanzable.** Incluso con 0,09, un 15 % de frames sin señal ocular repartidos al azar alcanza para cortar un dwell de 27 frames contiguos (0,85^27 ≈ 1 %). Hace falta tolerar caídas breves de señal ocular, como un parpadeo, sin cancelar ni avanzar el dwell (decisión pendiente).
+3. **La señal vertical del ojo derecho casi no varía** (iris_y 0,37 arriba contra 0,355 abajo); la del izquierdo sí. Hipótesis: los pares de párpado usados para normalizar no son simétricos entre ojos (`_LEFT_EYE` usa 387/373 y `_RIGHT_EYE` usa 158/153; los espejos serían 385/380 o 160/144). Hay que verificarlo antes de confiar en el modo RIGHT.
+4. **La deriva de postura entre bloques** (pitch de 7° a 11°) degrada la precisión fina. La corrección de sesión todavía no se aplica en el tablero.
+
 ## Resultados por modo con baseline y modelo adaptado
 
-**No hay todavía.** Se necesita una persona frente a la cámara que complete la validación guiada. El último resultado real es del 2026-09-21, en modo binocular y con distancia mayor:
+Baseline Ridge por modo: ver la sesión del 2026-11-16 arriba. **No hay modelo adaptado todavía** (hito 3). El resultado anterior es del 2026-09-21, en modo binocular y con distancia mayor:
 
 - acierto por blanco fijo: 63 %;
 - error mediano: 125,6 px;

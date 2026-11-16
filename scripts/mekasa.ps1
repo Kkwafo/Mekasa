@@ -1,42 +1,40 @@
 ﻿<#
 .SYNOPSIS
-    Mekasa: instalar, calibrar y usar el tablero desde PowerShell.
+    Mekasa: instalar, probar y usar el tablero desde PowerShell.
+
+.DESCRIPTION
+    El tablero calibra al empezar (~35 s): una calibración de otro día u otra postura no sirve.
+    Durante el uso compensa la distancia a la cámara, se reajusta solo si la persona cambia
+    de posición y aprende de cada selección.
 
 .EXAMPLE
     .\scripts\mekasa.ps1 instalar      # una sola vez
     .\scripts\mekasa.ps1 camara        # ver qué cámara responde
-    .\scripts\mekasa.ps1 calibrar      # ~2 min con la persona frente a la cámara
-    .\scripts\mekasa.ps1 regiones      # ~2 min, mide el acierto con consignas
-    .\scripts\mekasa.ps1 tablero       # tablero SÍ / NO / AGUA / AYUDA
+    .\scripts\mekasa.ps1 prueba        # calibra (~35 s) + 8 consignas, mide el acierto real
+    .\scripts\mekasa.ps1 tablero       # calibra (~35 s) y abre SÍ / NO / AGUA / AYUDA
+    .\scripts\mekasa.ps1 tablero -SinCalibrar   # reutiliza la última calibración + ajuste de 4 puntos
     .\scripts\mekasa.ps1 tablero -Ojo LEFT -Dwell 1.2
-    .\scripts\mekasa.ps1 tablero -Disposicion binary-horizontal
     .\scripts\mekasa.ps1 simular       # prueba de seguridad sin cámara
     .\scripts\mekasa.ps1 tests         # pruebas automáticas
 #>
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("instalar", "camara", "calibrar", "regiones", "tablero", "simular", "tests", "ayuda")]
+    [ValidateSet("instalar", "camara", "prueba", "tablero", "simular", "tests", "ayuda")]
     [string]$Accion = "ayuda",
-
-    # Calibración: "rapido" (~2 min) o "completo" (~4,5 min, más tiempo por punto).
-    [ValidateSet("rapido", "completo")]
-    [string]$Perfil = "rapido",
-
-    # Umbral personal de "ojo cerrado" (EAR). 0.09 corresponde a la sesión del 2026-11-16,
-    # donde el párpado bajaba al mirar hacia abajo. El valor poblacional es 0.15.
-    [double]$UmbralOjoCerrado = 0.09,
 
     [ValidateSet("BOTH", "LEFT", "RIGHT")]
     [string]$Ojo = "BOTH",
 
+    # Segundos de mirada fija para elegir (0 = valor de config/communication.toml, 0.9 s).
     [double]$Dwell = 0,
 
-    [ValidateSet("", "quadrant", "binary-horizontal", "binary-vertical")]
-    [string]$Disposicion = "",
+    # Veces que se pide cada opción en la prueba (2 = 8 consignas, ~1 min).
+    [ValidateRange(1, 5)]
+    [int]$Repeticiones = 2,
 
     [switch]$Confirmar,
-    [switch]$SinAjuste,
+    [switch]$SinCalibrar,
     [switch]$Ventana
 )
 
@@ -62,15 +60,16 @@ function Invoke-Py {
     if ($LASTEXITCODE -ne 0) { throw "Falló $Module (código $LASTEXITCODE)" }
 }
 
-function Write-PersonalConfig {
-    $target = "work/calibration/experiment-001-personal.toml"
-    New-Item -ItemType Directory -Force -Path "work/calibration" | Out-Null
-    $text = Get-Content "config/experiment-001.toml" -Raw -Encoding utf8
-    $value = $UmbralOjoCerrado.ToString([System.Globalization.CultureInfo]::InvariantCulture)
-    $text = $text -replace "(?m)^closed_ear_threshold = .*$", "closed_ear_threshold = $value"
-    [System.IO.File]::WriteAllText((Join-Path $root $target), $text, [System.Text.UTF8Encoding]::new($false))
-    return $target
+function Get-BoardArguments {
+    $arguments = @("--eye-mode", $Ojo)
+    if ($Dwell -gt 0) { $arguments += @("--dwell", $Dwell.ToString([System.Globalization.CultureInfo]::InvariantCulture)) }
+    if ($Confirmar) { $arguments += "--confirm" }
+    if ($SinCalibrar) { $arguments += "--no-calibrate" }
+    if ($Ventana) { $arguments += "--no-fullscreen" }
+    return $arguments
 }
+
+$keys = "Teclas: 1-4 elegir · ESPACIO pausa · A reajustar · K recalibrar · M cambiar ojo · G ver mirada · C borrar · ESC salir"
 
 switch ($Accion) {
     "instalar" {
@@ -82,36 +81,19 @@ switch ($Accion) {
     "camara" {
         Invoke-Py "mekasa_gaze.tracking.probe"
     }
-    "calibrar" {
-        $guided = if ($Perfil -eq "rapido") { "config/experiment-001-quick.toml" } else { "config/experiment-001.toml" }
-        Write-Host "1/2 Validación guiada ($Perfil). Mire cada punto sin mover la cabeza; ESC cancela." -ForegroundColor Cyan
-        Invoke-Py "mekasa_gaze.runners.guided_experiment" @("--config", $guided)
-        Write-Host "2/2 Entrenando calibraciones (ambos ojos, izquierdo, derecho)..." -ForegroundColor Cyan
-        $value = $UmbralOjoCerrado.ToString([System.Globalization.CultureInfo]::InvariantCulture)
-        foreach ($mode in "BOTH", "LEFT", "RIGHT") {
-            $out = "work/calibration/personal-gaze-model-$($mode.ToLower()).json"
-            & $uv run --locked python -m mekasa_gaze.tracking.calibration --eye-mode $mode `
-                --reclassify-ear-threshold $value --output $out
-            if ($LASTEXITCODE -ne 0) { Write-Warning "No se pudo calibrar el modo $mode (ver mensaje arriba)." }
-        }
-        Write-Host "Listo. Siguiente paso: .\scripts\mekasa.ps1 regiones  o  .\scripts\mekasa.ps1 tablero" -ForegroundColor Green
-    }
-    "regiones" {
-        $personal = Write-PersonalConfig
-        Invoke-Py "mekasa_gaze.runners.controlled_region_validation" @(
-            "--calibration", "work/calibration/personal-gaze-model-$($Ojo.ToLower()).json",
-            "--guided-config", $personal
-        )
+    "prueba" {
+        Write-Host "Calibración (~35 s): mire cada punto; en el punto central mueva despacio la cabeza." -ForegroundColor Cyan
+        Write-Host "Después se pide mirar cada opción $Repeticiones veces. El resultado queda en pantalla y en work/communication." -ForegroundColor Cyan
+        Write-Host $keys -ForegroundColor DarkCyan
+        $arguments = (Get-BoardArguments) + @("--test", "$Repeticiones")
+        Invoke-Py "mekasa_gaze.runners.communication_board" $arguments
     }
     "tablero" {
-        $arguments = @("--eye-mode", $Ojo)
-        if ($Dwell -gt 0) { $arguments += @("--dwell", $Dwell.ToString([System.Globalization.CultureInfo]::InvariantCulture)) }
-        if ($Disposicion) { $arguments += @("--layout", $Disposicion) }
-        if ($Confirmar) { $arguments += "--confirm" }
-        if ($SinAjuste) { $arguments += "--no-align" }
-        if ($Ventana) { $arguments += "--no-fullscreen" }
-        Write-Host "Teclas: 1-4 elegir · ESPACIO pausa · A reajustar · M cambiar ojo · G ver mirada · ESC salir" -ForegroundColor Cyan
-        Invoke-Py "mekasa_gaze.runners.communication_board" $arguments
+        if (-not $SinCalibrar) {
+            Write-Host "Calibración (~35 s): mire cada punto; en el punto central mueva despacio la cabeza." -ForegroundColor Cyan
+        }
+        Write-Host $keys -ForegroundColor DarkCyan
+        Invoke-Py "mekasa_gaze.runners.communication_board" (Get-BoardArguments)
     }
     "simular" {
         Invoke-Py "mekasa_gaze.runners.communication_board" @("--simulate")

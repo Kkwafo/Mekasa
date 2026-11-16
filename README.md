@@ -258,35 +258,47 @@ uv run mekasa-region-evaluation
 ### Uso rápido con PowerShell
 
 ```powershell
-.\scripts\mekasa.ps1 instalar     # una sola vez
-.\scripts\mekasa.ps1 calibrar     # ~2 min: validación guiada rápida + 3 calibraciones
-.\scripts\mekasa.ps1 regiones     # ~2 min: acierto con consignas (opcional)
-.\scripts\mekasa.ps1 tablero      # ajuste de 4 puntos (~10 s) y tablero
+.\scripts\mekasa.ps1 instalar               # una sola vez
+.\scripts\mekasa.ps1 prueba                 # calibra (~35 s) + 8 consignas: mide el acierto real
+.\scripts\mekasa.ps1 tablero                # calibra (~35 s) y abre el tablero
+.\scripts\mekasa.ps1 tablero -SinCalibrar   # última calibración + ajuste de 4 puntos (~10 s)
 ```
 
-Opciones del tablero: `-Ojo LEFT|RIGHT`, `-Dwell 1.2`, `-Disposicion binary-horizontal`, `-Confirmar`, `-SinAjuste`, `-Ventana`. Calibración completa (más tiempo por punto): `.\scripts\mekasa.ps1 calibrar -Perfil completo`. El umbral personal de ojo cerrado se cambia con `-UmbralOjoCerrado 0.15` (valor poblacional).
+Opciones: `-Ojo LEFT|RIGHT`, `-Dwell 1.2`, `-Confirmar`, `-Ventana`, `-Repeticiones 3` (prueba).
 
 ### Tablero de comunicación (SÍ / NO / AGUA / AYUDA)
 
 ```powershell
-uv run mekasa-board                       # tablero a pantalla completa
+uv run mekasa-board                       # calibra y abre el tablero a pantalla completa
+uv run mekasa-board --test 2              # calibra, prueba con consignas, luego tablero
+uv run mekasa-board --no-calibrate        # reutiliza work/calibration/session-gaze-model-*.json
 uv run mekasa-board --eye-mode LEFT       # BOTH | LEFT | RIGHT (lado anatómico)
-uv run mekasa-board --layout binary-vertical --dwell 1.2 --confirm
 uv run mekasa-board --simulate            # replay sin cámara de todos los bloqueos de seguridad
 ```
 
-* **Configuración:** `config/communication.toml`. Contiene dwell, enfriamiento, recuperación, edad máxima de frame, confirmación, frases y voz.
-* **Calibración por modo ocular:**
-  ```powershell
-  uv run mekasa-calibrate --eye-mode LEFT --output work/calibration/personal-gaze-model-left.json
-  ```
-  Sin una calibración válida para el modo activo, la mirada no selecciona nada.
+* **Calibración al inicio (~35 s).** Una calibración de otra sesión no sirve: en los datos del 2026-11-16 el acierto 2×2 cayó de 96–100 % dentro de la sesión a 26 % entre sesiones. La calibración muestra 9 puntos dentro del tablero, luego el punto central mientras la persona mueve despacio la cabeza, y repite los 9 puntos en otro orden. Entrena un modelo para cada modo ocular y muestra el acierto validado (arriba y abajo por separado). `R` la repite.
+* **Qué aprende el modelo.** Por cada modo ocular compara tres variantes con validación cruzada entre rondas y se queda con la mejor:
+  * puntos del rostro (iris, apertura del ojo, pose de la cabeza);
+  * imagen del ojo: parches de 20×10 píxeles alineados a las comisuras, que captan el párpado y la esclera, donde está la señal vertical;
+  * ambas combinadas.
+* **Umbral personal de ojo cerrado.** Se calcula de la propia mirada hacia abajo, porque el párpado baja al mirar abajo.
+* **Mientras se usa:**
+  * compensa la distancia a la cámara con el ancho del rostro;
+  * avisa si la persona se acercó, se alejó, se corrió o giró;
+  * si el cambio dura más de 2,5 s, hace solo un ajuste rápido de 4 puntos;
+  * aprende un poco de cada selección hecha con la mirada; `C`, dentro de los 5 s, la borra y la descarta.
+* **Configuración:** `config/communication.toml`. Contiene dwell, enfriamiento, recuperación, edad máxima de frame, confirmación, frases, voz y las opciones de precisión (`calibrate_at_start`, `auto_realign`, `implicit_recalibration`, `distance_compensation`, `camera_position`).
 * **Acceso directo:** las teclas `1`–`4` y el clic del mouse funcionan siempre, aun sin calibración.
-* **Otros controles:** `ESPACIO` pausa, `A` repite el ajuste rápido, `ENTER` confirma la opción pendiente, `M` cambia el modo ocular, `G` muestra el punto de mirada, `C` borra el mensaje y `ESC` sale.
-* **Ajuste rápido de sesión:** al abrir, el tablero pide mirar el centro de cada opción (unos 10 s) y corrige el desvío de postura de ese día. `S` lo salta.
+* **Otros controles:** `ESPACIO` pausa, `A` hace un ajuste rápido, `K` recalibra, `ENTER` confirma la opción pendiente, `M` cambia el modo ocular, `G` muestra el punto de mirada, `C` borra el mensaje y `ESC` sale.
 * **Parpadeos:** caídas de señal ocular de hasta 0,2 s congelan el progreso en lugar de cancelarlo; las pérdidas de cámara, imagen o rostro cancelan siempre.
 * **Bloqueos de seguridad:** una cámara desconectada, un frame vencido, tracking inválido, el ojo requerido no visible, la pausa o un cambio de modo vacían el foco y la confirmación pendiente.
 * **Si falla la voz:** el mensaje confirmado queda visible.
+* **Privacidad:**
+  * Las imágenes del ojo solo existen en memoria.
+  * El modelo guardado contiene el promedio de esas imágenes, un ojo de 20×10 píxeles; es un archivo local y se borra borrando `work/calibration/session-gaze-model-*.json`.
+  * Los reportes no guardan frames, parches, landmarks ni historial de mensajes.
+
+Los runners de investigación (pasos 1–5) siguen disponibles para estudios. El uso diario pasa por el tablero.
 
 Estado actual, mediciones y próximos pasos: [`docs/STATUS.md`](docs/STATUS.md). Evidencia y compatibilidad: [`research/EVIDENCE.md`](research/EVIDENCE.md) y [`research/COMPATIBILITY.md`](research/COMPATIBILITY.md).
 

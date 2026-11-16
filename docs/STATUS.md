@@ -6,8 +6,10 @@
 
 1. **Captura y detección (hito 1).** `uv run mekasa-experiment-001 --no-display` corre en este equipo. Hay más detalles en `research/EVIDENCE.md`.
 2. **Tablero de comunicación (hito 2, parcial).** `uv run mekasa-board` abre un tablero SÍ / NO / AGUA / AYUDA a pantalla completa.
+   - Empieza con una calibración de ~35 s en la misma sesión y muestra el acierto validado por modo ocular. `--test N` agrega una prueba con consignas sobre el tablero real.
    - Usa dwell ajustable (900 ms por defecto), progreso visible, histéresis, enfriamiento y rearme al salir de la opción.
-   - Tiene confirmación opcional (`--confirm`), modo binario (`--layout binary-horizontal|binary-vertical`) y modos oculares `--eye-mode BOTH|LEFT|RIGHT`.
+   - Tiene confirmación opcional (`--confirm`) y modos oculares `--eye-mode BOTH|LEFT|RIGHT`. El modo binario se quitó.
+   - Mientras se usa: compensa la distancia, avisa cambios de posición, se reajusta solo y aprende de cada selección por mirada.
    - Usa TTS local (Windows SAPI). Si la voz falla, el mensaje queda visible.
    - Pausa con la barra espaciadora. El acceso directo por teclas 1-4 y clic funciona incluso sin calibración.
    - La captura corre en un hilo con un búfer de un solo frame y reconexión automática.
@@ -67,6 +69,59 @@ Hallazgos:
 | UI: texto con acentos (Pillow y Segoe UI), indicador por ojo, aviso de distancia, pantalla de ajuste | SÍ se veía como SI; faltaba saber por qué no seleccionaba | verificado con capturas renderizadas |
 | `scripts/mekasa.ps1` | Levantar y probar con un comando | `simular` y `tests` ejecutados |
 
+## Análisis de la sesión de las 20:20 y rediseño (2026-11-16, noche)
+
+Síntoma informado: los cuadrantes superiores funcionan; abajo-izquierda y abajo-derecha no.
+
+### Qué pasó en esa sesión
+
+1. **La calibración nueva nunca se entrenó.** `mekasa.ps1 calibrar` corrió la validación guiada, pero los tres `mekasa-calibrate` fallaron con "no usable GAZE_DISCRIMINATION observations":
+   - la configuración pedía `left_iris_v` y `right_iris_v`;
+   - el reporte guiado guarda una lista fija de features que no las incluía (`services/reporting.py`, `_PERSISTED_FEATURES`).
+
+   El script solo mostró una advertencia, así que regiones y tablero usaron la calibración de las 16:52. **Fue un error mío de la ronda anterior**: probé la calibración solo con reportes viejos. Ya está corregido: el reporte guarda `*_iris_v`. El flujo nuevo ya no depende de ese paso.
+2. **Una calibración de otra sesión no sirve.** Las dos validaciones guiadas de hoy son A (16:36) y B (20:20). Acierto 2×2 a nivel frame, Ridge sobre landmarks:
+
+   | Entrenado → evaluado | Acierto 2×2 | Horizontal | Vertical |
+   | --- | --- | --- | --- |
+   | A → A (bloque 3 apartado) | 96–100 % | 97–100 % | 97–98 % |
+   | B → B (bloque 3 apartado) | 40–77 % | 87–100 % | 50–90 % |
+   | A → B | 26–47 % | 56–74 % | 50–82 % |
+   | B → A | 15–36 % | 51–87 % | 18–52 % |
+   | A → B con ajuste afín de 4 puntos | 70–72 % | 93–95 % | 75–83 % |
+   | B, una sola ronda nueva de 9 puntos | 66–67 % | 89–90 % | 72–81 % |
+   | A, una sola ronda nueva de 9 puntos | 100 % | 100 % | 100 % |
+
+   El ajuste de 4 puntos no rescata una calibración vieja. Una calibración nueva sí.
+3. **En B, los landmarks casi no traen señal vertical.**
+   - `iris_y`, normalizado por el párpado, queda plano: 0,41 arriba y 0,42 abajo.
+   - El EAR baja poco: de 0,37 a 0,31 (en A bajaba de 0,26 a 0,12).
+   - La horizontal sigue bien.
+   - En B, la persona estaba corrida en la imagen (centro x 0,56 contra 0,40) y con los ojos más abiertos. No sé si era otra persona o la misma con otra luz o lentes.
+
+   Así se explica exactamente que "arriba funciona, abajo no".
+
+### Qué se cambió (medido sobre A y B, validación cruzada entre rondas)
+
+| Cambio | Evidencia | Estado |
+| --- | --- | --- |
+| Calibración dentro del tablero al inicio de cada uso (~35 s: 9 puntos, cabeza en movimiento mirando el centro, 9 puntos en otro orden) | Ver la tabla anterior | implementado; test de punta a punta con persona sintética |
+| Segmento de movimiento de cabeza mirando un punto fijo | Con 2 rondas, sin y con el segmento: A 81 → 95 %, B 94 → 98 % (2×2, frame). El segmento se agrupa con su ronda, sin fuga entre folds | medido en Mekasa (reanálisis de A y B) |
+| Umbral personal de ojo cerrado = 60 % del EAR al mirar la fila de abajo (entre 0,06 y 0,18), más descarte de frames cercanos a parpadeos | A: 0,082; B: 0,173. Con 0,15 fijo, A pierde toda la fila de abajo | medido en Mekasa (reanálisis) |
+| Modelo con selección automática: landmarks, imagen del ojo (parches de 20×10 alineados a las comisuras, como WebGazer) o ambos; alpha por validación cruzada entre rondas | Landmarks, 2 rondas + cabeza: A BOTH 95 % (100 % por fijación); B BOTH 98 % (100 % por fijación). **La imagen del ojo no se pudo medir con datos reales**: los reportes no guardan imágenes. En el replay sintético sin señal vertical en landmarks, la imagen la recupera (100 % contra < 85 %) | landmarks medidos; imagen sin medir con persona |
+| Tablero hasta el borde inferior; estado y mensaje arriba | Más ángulo vertical entre filas (centros de fila 0,34 y 0,77 en lugar de 0,28 y 0,66) | implementado |
+| Compensación de distancia (escala alrededor de la cámara por ancho de rostro de calibración / actual) | Geometría proyectiva | hipótesis de ingeniería |
+| Reajuste automático de 4 puntos si la persona queda > 2,5 s más cerca, más lejos, corrida o girada respecto de la calibración | El ajuste afín corrige bien cambios de escala y desplazamiento dentro de una sesión | hipótesis de ingeniería; verificado en replay |
+| Aprendizaje implícito: cada selección por mirada suma una muestra liviana (decae, tope de 30, `C` en 5 s la retira) | Idea de calibración implícita de WebGazer con clics | hipótesis de ingeniería |
+| `--test N`: consignas sobre el tablero real, solo por mirada, sin aprendizaje implícito | Medida prospectiva honesta del sistema completo | implementado |
+| Se quitó la disposición binaria | Pedido explícito | hecho |
+
+Limitaciones:
+
+- Los porcentajes de calibración son validación cruzada dentro de la misma sesión, y el tipo de modelo y el alpha se eligieron sobre esas mismas rondas: son optimistas.
+- La única medida honesta del tablero es `mekasa.ps1 prueba`.
+- Son dos sesiones de un equipo y no está claro si fue una persona o dos.
+
 ## Resultados por modo con baseline y modelo adaptado
 
 Baseline Ridge por modo: ver la sesión del 2026-11-16 arriba. **No hay modelo adaptado todavía** (hito 3). El resultado anterior es del 2026-09-21, en modo binocular y con distancia mayor:
@@ -79,21 +134,16 @@ Esto **no alcanza** para usar el sistema como CAA. Para uso real, el acceso dire
 
 ## Próximos pasos (en orden), comando exacto y archivos
 
-1. **Primera medición guiada en este equipo (requiere persona y buena luz).**
+1. **Prueba con la persona (requiere buena luz y la cámara arriba de la pantalla).**
    ```powershell
-   uv run mekasa-guided-validation
-   uv run mekasa-calibrate --eye-mode BOTH --output work/calibration/personal-gaze-model-both.json
-   uv run mekasa-calibrate --eye-mode LEFT --output work/calibration/personal-gaze-model-left.json
-   uv run mekasa-calibrate --eye-mode RIGHT --output work/calibration/personal-gaze-model-right.json
-   uv run mekasa-controlled-region-validation
-   uv run mekasa-board
+   powershell -ExecutionPolicy Bypass -File .\scripts\mekasa.ps1 prueba
    ```
-   Hay que registrar el resultado en `research/COMPATIBILITY.md`. Con la luz actual la cámara bajó a 14 FPS: medir también con más luz.
-2. **Validación con blancos instruidos sobre el tablero.** Agregar un runner que pida opciones al azar, sume pausas de mirada libre (falsos positivos por minuto) y compare dwell de 450, 900 y 1200 ms. Se puede reutilizar `CommunicationSession` y el protocolo de `runners/controlled_region_validation.py`.
+   - Hay que anotar el acierto por opción (en pantalla y en `work/communication/board-session-latest.json` → `test`) y qué modelo eligió cada modo (`calibration.fits.*.kind`).
+   - Si abajo sigue fallando con `kind = landmarks`, revisar la luz sobre los ojos. Si falla con `appearance` o `hybrid`, probar `-Ojo LEFT` o `-Ojo RIGHT` y subir la cámara o bajar la pantalla.
+2. **Falsos positivos y dwell.** Un minuto de mirada libre por perfil: `-Dwell 0.45`, `0.9` y `1.2`, contando mensajes no deseados.
 3. **Calibración corta.** Comparar 3, 5 y 9 puntos no colineales (`config/experiment-001.toml`, `[targets.*]`). Recalibrar solo una región u ojo, y guardar el perfil asociado a persona, modo, cámara y pantalla.
 4. **Hito 3: estimador neuronal.** Una MLP pequeña en CPU sobre las features, con máscara por ojo, o una corrección residual del Ridge. Requiere entrenamiento reproducible, promoción solo si mejora en blancos apartados, y rollback atómico. Hay que justificar la dependencia (numpy puro o PyTorch/ONNX; ver el ADR-006 histórico).
 5. **Pendientes de UI.**
-   - Texto Unicode en pantalla: hoy "SÍ" se ve como "SI" porque Hershey solo tiene ASCII. La voz sí pronuncia el acento.
    - Pictogramas con licencia verificada.
    - Barrido con pulsador.
    - Ajuste de posición y tamaño de opciones desde la UI.
@@ -111,7 +161,7 @@ Pegar en `research/COMPATIBILITY.md`:
 Fecha / sistema / CPU:
 Cámara (modelo, integrada/USB) / backend / resolución y FPS efectivos (mekasa-probe-cameras):
 Luz (natural/artificial/contraluz) / lentes (sí/no) / distancia aproximada:
-Modo ocular / dwell / layout:
+Modo ocular / dwell / modelo elegido (calibration.fits.*.kind):
 Calibración completada (sí/no) y reporte:
 Selecciones correctas / incorrectas / sin selección (con blancos instruidos):
 Falsos positivos durante N minutos de mirada libre:

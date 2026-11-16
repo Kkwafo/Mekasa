@@ -255,6 +255,28 @@ Expone cuatro grandes cuadrantes en pantalla con retroalimentación visual de pe
 uv run mekasa-region-evaluation
 ```
 
+### Tablero de comunicación (SÍ / NO / AGUA / AYUDA)
+
+```powershell
+uv run mekasa-board                       # tablero a pantalla completa
+uv run mekasa-board --eye-mode LEFT       # BOTH | LEFT | RIGHT (lado anatómico)
+uv run mekasa-board --layout binary-vertical --dwell 1.2 --confirm
+uv run mekasa-board --simulate            # replay sin cámara de todos los bloqueos de seguridad
+```
+
+* **Configuración:** `config/communication.toml`. Contiene dwell, enfriamiento, recuperación, edad máxima de frame, confirmación, frases y voz.
+* **Calibración por modo ocular:**
+  ```powershell
+  uv run mekasa-calibrate --eye-mode LEFT --output work/calibration/personal-gaze-model-left.json
+  ```
+  Sin una calibración válida para el modo activo, la mirada no selecciona nada.
+* **Acceso directo:** las teclas `1`–`4` y el clic del mouse funcionan siempre, aun sin calibración.
+* **Otros controles:** `ESPACIO` pausa, `ENTER` confirma la opción pendiente, `M` cambia el modo ocular, `G` muestra el punto de mirada, `C` borra el mensaje y `ESC` sale.
+* **Bloqueos de seguridad:** una cámara desconectada, un frame vencido, tracking inválido, el ojo requerido no visible, la pausa o un cambio de modo vacían el foco y la confirmación pendiente.
+* **Si falla la voz:** el mensaje confirmado queda visible.
+
+Estado actual, mediciones y próximos pasos: [`docs/STATUS.md`](docs/STATUS.md). Evidencia y compatibilidad: [`research/EVIDENCE.md`](research/EVIDENCE.md) y [`research/COMPATIBILITY.md`](research/COMPATIBILITY.md).
+
 ### Paso 5: Validación Controlada por Regiones
 Evalúa empíricamente la tasa de aciertos y latencias pidiendo al usuario fijar la mirada en regiones solicitadas aleatoriamente:
 ```powershell

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from mekasa_gaze.core.board import CommunicationConfig, binary_board, quadrant_board
+from mekasa_gaze.core.board import CommunicationConfig, quadrant_board
 from mekasa_gaze.core.domain import EyeState
 from mekasa_gaze.core.eye_mode import (
     EyeMode,
@@ -315,26 +315,24 @@ def test_message_survives_pause_and_signal_loss() -> None:
 # ---------------------------------------------------------------- layouts and config
 
 
-def test_layouts_have_gaps_and_binary_variants() -> None:
+def test_quadrant_layout_has_gaps() -> None:
     quadrant = quadrant_board()
     assert [option.label for option in quadrant.options] == ["SÍ", "NO", "AGUA", "AYUDA"]
     assert quadrant.option_at(GAP) is None
-    vertical = binary_board(orientation="vertical")
-    top = vertical.option_at((0.5, 0.2))
-    bottom = vertical.option_at((0.5, 0.8))
-    assert top is not None and top.key == "YES"
-    assert bottom is not None and bottom.key == "NO"
 
 
 def test_config_file_loads_and_validates(tmp_path: Path) -> None:
     path = tmp_path / "communication.toml"
     path.write_text(
-        '[communication]\ndwell_seconds = 1.2\neye_mode = "left"\nlayout = "binary-vertical"\n'
+        '[communication]\ndwell_seconds = 1.2\neye_mode = "left"\ncalibrate_at_start = false\n'
+        "camera_position = [0.5, 1.02]\n"
         '[phrases.YES]\nlabel = "SI"\nphrase = "Si, gracias"\n',
         encoding="utf-8",
     )
     config = CommunicationConfig.load(path)
     assert config.eye_mode is EyeMode.LEFT
+    assert config.calibrate_at_start is False
+    assert config.camera_position == (0.5, 1.02)
     assert config.board().option("YES").phrase == "Si, gracias"
     path.write_text("[communication]\ndwell_seconds = 0.05\n", encoding="utf-8")
     with pytest.raises(ValueError):

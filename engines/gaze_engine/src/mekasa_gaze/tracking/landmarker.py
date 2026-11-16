@@ -10,6 +10,7 @@ import numpy as np
 import numpy.typing as npt
 
 from mekasa_gaze.core.domain import FeatureObservation, TrackingState
+from mekasa_gaze.tracking.eye_patches import eye_patches_from_landmarks
 from mekasa_gaze.tracking.geometry import (
     canthal_vertical_offset,
     euclidean_2d,
@@ -191,6 +192,7 @@ class FaceFeatureExtractor:
                 float(maximum[0]),
                 float(maximum[1]),
             )
+            patches = eye_patches_from_landmarks(rgb_frame, landmarks)
             pose = None
             evidence = "face_and_required_eye_landmarks"
             matrices = result.facial_transformation_matrixes
@@ -205,6 +207,7 @@ class FaceFeatureExtractor:
             debug_left_iris = ()
             debug_right_iris = ()
             debug_face_box = None
+            patches = (None, None)
             pose = None
             evidence = f"invalid_landmark_geometry:{type(error).__name__}"
             state = TrackingState.UNCERTAIN
@@ -223,6 +226,7 @@ class FaceFeatureExtractor:
             debug_left_iris_points=debug_left_iris,
             debug_right_iris_points=debug_right_iris,
             debug_face_box=debug_face_box,
+            eye_patches=patches,
         )
 
     def close(self) -> None:

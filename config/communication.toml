@@ -23,9 +23,26 @@ confirmation_required = false
 confirmation_window_seconds = 4.0
 # BOTH, LEFT or RIGHT (anatomical side of the person).
 eye_mode = "BOTH"
-# quadrant, binary-horizontal or binary-vertical.
-layout = "quadrant"
 high_contrast = true
+
+# --- Precision (2026-11-16 analysis, measured in Mekasa) ---------------------------------
+# A calibration from one sitting does not transfer to another: 2x2 frame accuracy fell from
+# 96-100 % within a session to 26 % across sessions; a fresh 2-round calibration with a
+# head-movement segment reached 95-98 % (cross-validated within the session). So the board
+# calibrates at every start (~35 s). Set false to reuse the last calibration + 4-point
+# alignment (faster, less precise).
+calibrate_at_start = true
+# Re-run the 4-point alignment automatically when the face stays clearly closer, farther,
+# shifted or turned relative to calibration (engineering hypothesis).
+auto_realign = true
+# Learn lightly from each gaze selection (assumes the person looked at what they chose;
+# clearing the message with C within 5 s retracts it). Engineering hypothesis.
+implicit_recalibration = true
+# Scale predictions about the camera by calibration face width / current face width, the
+# projective effect of viewing distance. Engineering hypothesis until measured.
+distance_compensation = true
+# Camera position in screen-normalized coordinates (x, y). Default: top-centre bezel.
+camera_position = [0.5, -0.02]
 
 [speech]
 enabled = true

@@ -24,7 +24,7 @@ from mekasa_gaze.runners.board_simulation import (
 from mekasa_gaze.runners.communication_board import calibration_paths
 from mekasa_gaze.tracking.communication import SessionState, SessionUpdate
 from mekasa_gaze.tracking.frame_source import LatestFrameGrabber
-from mekasa_gaze.ui.board_view import render_board, screen_to_board, status_text
+from mekasa_gaze.ui.board_view import board_area, render_board, screen_to_board, status_text
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -96,11 +96,13 @@ def test_suite_passes(
 
 
 def test_status_and_message_bars_never_select() -> None:
-    area = (0.02, 0.09, 0.98, 0.85)
-    status_point = screen_to_board((0.2, 0.04), area)
-    message_point = screen_to_board((0.2, 0.95), area)
+    area = board_area(1280, 720)
+    status_point = screen_to_board((0.2, 0.03), area)
+    message_point = screen_to_board((0.2, 0.12), area)
     assert status_point is not None and status_point[1] < 0
-    assert message_point is not None and message_point[1] > 1
+    assert message_point is not None and message_point[1] < 0
+    # The board reaches the bottom of the screen (largest vertical angle between rows).
+    assert area[3] >= 0.97
 
 
 def test_render_smoke(communication: CommunicationConfig) -> None:
@@ -114,11 +116,13 @@ def test_render_smoke(communication: CommunicationConfig) -> None:
         assert status_text(update, EyeMode.LEFT)
 
 
-def test_calibration_paths_prefer_mode_files_with_legacy_fallback(tmp_path: Path) -> None:
+def test_calibration_paths_prefer_session_models_with_fallbacks(tmp_path: Path) -> None:
     (tmp_path / "personal-gaze-model.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "session-gaze-model-left.json").write_text("{}", encoding="utf-8")
     paths = calibration_paths(tmp_path)
     assert paths[EyeMode.BOTH].name == "personal-gaze-model.json"
-    assert paths[EyeMode.LEFT].name == "personal-gaze-model-left.json"
+    assert paths[EyeMode.LEFT].name == "session-gaze-model-left.json"
+    assert paths[EyeMode.RIGHT].name == "personal-gaze-model-right.json"
 
 
 # ------------------------------------------------------------------ capture thread

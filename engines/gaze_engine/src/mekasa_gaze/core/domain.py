@@ -244,6 +244,8 @@ class FeatureObservation:
         debug_left_iris_points: Ephemeral normalized points for left iris visualization.
         debug_right_iris_points: Ephemeral normalized points for right iris visualization.
         debug_face_box: Normalized (min_x, min_y, max_x, max_y) face bounding box.
+        eye_patches: Ephemeral (left, right) normalized eye-appearance vectors used by the
+            personal gaze model. In memory only; reports never persist them.
     """
 
     frame_sequence: int
@@ -259,6 +261,10 @@ class FeatureObservation:
     debug_left_iris_points: tuple[tuple[float, float], ...] = ()
     debug_right_iris_points: tuple[tuple[float, float], ...] = ()
     debug_face_box: tuple[float, float, float, float] | None = None
+    eye_patches: tuple[npt.NDArray[np.float32] | None, npt.NDArray[np.float32] | None] = (
+        None,
+        None,
+    )
 
     @property
     def tracking_available(self) -> bool:

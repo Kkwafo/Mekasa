@@ -118,32 +118,6 @@ def quadrant_board(
     )
 
 
-def binary_board(
-    phrases: dict[str, tuple[str, str]] | None = None,
-    gap: float = _GAP * 2,
-    orientation: str = "horizontal",
-) -> BoardLayout:
-    """Two large options (SÍ / NO). ``orientation`` is ``horizontal`` or ``vertical``.
-
-    A vertical split serves people whose reliable eye movement is limited to one axis.
-    """
-    labels = phrases or DEFAULT_PHRASES
-    half = gap / 2.0
-    if orientation == "horizontal":
-        cells = {"YES": (0.0, 0.0, 0.5 - half, 1.0), "NO": (0.5 + half, 0.0, 1.0, 1.0)}
-    elif orientation == "vertical":
-        cells = {"YES": (0.0, 0.0, 1.0, 0.5 - half), "NO": (0.0, 0.5 + half, 1.0, 1.0)}
-    else:
-        raise ValueError("orientation must be 'horizontal' or 'vertical'")
-    return BoardLayout(
-        f"binary-{orientation}",
-        tuple(
-            BoardOption(key, labels[key][0], labels[key][1], bounds)
-            for key, bounds in cells.items()
-        ),
-    )
-
-
 @dataclass(frozen=True, slots=True)
 class CommunicationConfig:
     """Timing, safety and presentation settings for the communication board.
@@ -161,9 +135,14 @@ class CommunicationConfig:
     confirmation_required: bool = False
     confirmation_window_seconds: float = 4.0
     eye_mode: EyeMode = EyeMode.BOTH
-    layout: str = "quadrant"
     high_contrast: bool = True
     phrases: tuple[tuple[str, str, str], ...] = ()
+    # Precision features (see config/communication.toml for the evidence behind each).
+    calibrate_at_start: bool = True
+    auto_realign: bool = True
+    implicit_recalibration: bool = True
+    distance_compensation: bool = True
+    camera_position: tuple[float, float] = (0.5, -0.02)
 
     def validate(self) -> None:
         """Raise ``ValueError`` for unsafe or inconsistent settings."""
@@ -181,17 +160,15 @@ class CommunicationConfig:
             raise ValueError("eye_dropout_grace_seconds must be within [0, 0.5]")
         if self.confirmation_window_seconds <= 0.0:
             raise ValueError("confirmation_window_seconds must be positive")
-        if self.layout not in ("quadrant", "binary-horizontal", "binary-vertical"):
-            raise ValueError("layout must be quadrant, binary-horizontal or binary-vertical")
+        if not (0.0 <= self.camera_position[0] <= 1.0 and -0.5 <= self.camera_position[1] <= 1.5):
+            raise ValueError("camera_position must be a screen-normalized point near the screen")
 
     def board(self) -> BoardLayout:
         """Build the configured board layout."""
         phrases = dict(DEFAULT_PHRASES)
         for key, label, phrase in self.phrases:
             phrases[key] = (label, phrase)
-        if self.layout == "quadrant":
-            return quadrant_board(phrases)
-        return binary_board(phrases, orientation=self.layout.removeprefix("binary-"))
+        return quadrant_board(phrases)
 
     @classmethod
     def load(cls, path: Path) -> CommunicationConfig:
@@ -222,12 +199,25 @@ class CommunicationConfig:
                 section.get("confirmation_window_seconds", defaults.confirmation_window_seconds)
             ),
             eye_mode=EyeMode(str(section.get("eye_mode", defaults.eye_mode.value)).upper()),
-            layout=str(section.get("layout", defaults.layout)),
             high_contrast=bool(section.get("high_contrast", defaults.high_contrast)),
             phrases=phrases,
+            calibrate_at_start=bool(section.get("calibrate_at_start", defaults.calibrate_at_start)),
+            auto_realign=bool(section.get("auto_realign", defaults.auto_realign)),
+            implicit_recalibration=bool(
+                section.get("implicit_recalibration", defaults.implicit_recalibration)
+            ),
+            distance_compensation=bool(
+                section.get("distance_compensation", defaults.distance_compensation)
+            ),
+            camera_position=_point(section.get("camera_position", defaults.camera_position)),
         )
         config.validate()
         return config
+
+
+def _point(value: Any) -> tuple[float, float]:
+    x, y = value
+    return float(x), float(y)
 
 
 __all__ = [
@@ -235,6 +225,5 @@ __all__ = [
     "BoardLayout",
     "BoardOption",
     "CommunicationConfig",
-    "binary_board",
     "quadrant_board",
 ]

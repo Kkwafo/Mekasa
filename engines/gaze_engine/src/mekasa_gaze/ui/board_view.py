@@ -1,9 +1,11 @@
 """High-contrast renderer for the communication board and its quick alignment step.
 
-The screen has three bands: a status bar (what the system is doing, why it is not selecting,
-which eyes are usable, whether the session is aligned), the board, and a message bar that
-keeps the last confirmed phrase visible even if speech fails. Gaze coordinates are mapped into
-the board band, so looking at the status or message bar never selects anything.
+Both information bands sit at the top: a status line (what the system is doing, why it is not
+selecting, which eyes are usable, alignment and distance) and a message bar that keeps the last
+confirmed phrase visible even if speech fails. The board fills the rest of the screen down to
+the bottom edge, which maximizes the vertical angle between the two rows (vertical gaze is the
+weakest axis with a webcam above the screen). Gaze is mapped into the board area only, so
+looking at the bands never selects anything.
 """
 
 from __future__ import annotations
@@ -18,12 +20,14 @@ from mekasa_gaze.core.board import BoardLayout, BoardOption
 from mekasa_gaze.core.eye_mode import EyeMode
 from mekasa_gaze.tracking.communication import AbstainReason, SessionState, SessionUpdate
 from mekasa_gaze.tracking.session_alignment import AlignmentSnapshot
+from mekasa_gaze.tracking.session_calibration import CalibrationSnapshot
 from mekasa_gaze.ui.text import draw_text
 from mekasa_gaze.ui.visualization import _filled_rounded_rectangle
 
-STATUS_FRACTION = 0.09
-MESSAGE_FRACTION = 0.15
+STATUS_FRACTION = 0.07
+MESSAGE_FRACTION = 0.11
 _MARGIN = 0.02
+_BOARD_TOP = STATUS_FRACTION + MESSAGE_FRACTION + 0.015
 
 Color = tuple[int, int, int]
 
@@ -83,7 +87,7 @@ SOFT = Palette(
 def board_area(width: int, height: int) -> tuple[float, float, float, float]:
     """Normalized screen rectangle (left, top, right, bottom) occupied by the board."""
     del width, height
-    return (_MARGIN, STATUS_FRACTION, 1.0 - _MARGIN, 1.0 - MESSAGE_FRACTION)
+    return (_MARGIN, _BOARD_TOP, 1.0 - _MARGIN, 1.0 - _MARGIN)
 
 
 def screen_to_board(
@@ -132,8 +136,17 @@ _MODE_TEXT = {
 }
 
 
-def status_text(update: SessionUpdate, eye_mode: EyeMode, hint: str | None = None) -> str:
-    """Short Spanish status line for the person and their support."""
+def status_text(
+    update: SessionUpdate,
+    eye_mode: EyeMode,
+    hint: str | None = None,
+    notice: str | None = None,
+) -> str:
+    """Short Spanish status line for the person and their support.
+
+    ``hint`` explains a tracking loss (e.g. move closer); ``notice`` replaces the idle "ready"
+    line (e.g. a placement change since calibration).
+    """
     state = update.state
     if state is SessionState.NO_CALIBRATION:
         return "Sin calibración para este modo · use las teclas 1 a 4"
@@ -154,6 +167,8 @@ def status_text(update: SessionUpdate, eye_mode: EyeMode, hint: str | None = Non
         return "Confirmado"
     if state is SessionState.AWAITING_EXIT:
         return "Confirmado · aparte la mirada para elegir otra vez"
+    if notice:
+        return notice
     return f"Listo · {_MODE_TEXT[eye_mode]}: mire una opción"
 
 
@@ -171,6 +186,8 @@ def render_board(
     eyes: tuple[bool, bool] | None = None,
     hint: str | None = None,
     aligned: bool | None = None,
+    notice: str | None = None,
+    prompt: str | None = None,
 ) -> npt.NDArray[np.uint8]:
     """Render one frame of the board.
 
@@ -187,6 +204,8 @@ def render_board(
         eyes: (left usable, right usable) for the eye indicators, or None if unknown.
         hint: Placement instruction (e.g. move closer) shown when tracking is the issue.
         aligned: Whether a session alignment is active (None hides the indicator).
+        notice: Replaces the idle status line (placement change since calibration, ...).
+        prompt: Test-mode instruction shown in the message bar instead of the message.
     """
     palette = HIGH_CONTRAST if high_contrast else SOFT
     canvas = np.empty((height, width, 3), dtype=np.uint8)
@@ -203,9 +222,11 @@ def render_board(
     indicators_w = int(width * 0.30)
     draw_text(
         canvas,
-        status_text(update, eye_mode, hint),
+        status_text(update, eye_mode, hint, notice),
         (margin_px, 0, width - indicators_w, status_h),
-        palette.warning if lost else palette.status_text,
+        palette.warning
+        if (lost or (notice and update.state is SessionState.READY))
+        else palette.status_text,
         max_size=max(14, status_h // 2),
         bold=False,
         align="left",
@@ -220,25 +241,27 @@ def render_board(
     for option in layout.options:
         _draw_option(canvas, option, update, area, palette, flash)
 
-    message_top = int(height * (1.0 - MESSAGE_FRACTION))
-    cv2.rectangle(canvas, (0, message_top), (width, height), palette.message_background, -1)
-    if update.message:
+    message_top = status_h
+    message_bottom = status_h + int(height * MESSAGE_FRACTION)
+    cv2.rectangle(canvas, (0, message_top), (width, message_bottom), palette.message_background, -1)
+    text = prompt if prompt else update.message
+    if text:
         draw_text(
             canvas,
-            update.message,
-            (margin_px, message_top, width - margin_px, height),
-            palette.message_text,
-            max_size=int(height * MESSAGE_FRACTION * 0.6),
+            text,
+            (margin_px, message_top, width - margin_px, message_bottom),
+            palette.focus if prompt else palette.message_text,
+            max_size=int(height * MESSAGE_FRACTION * 0.65),
         )
-        if not speech_ok:
-            draw_text(
-                canvas,
-                "sin voz",
-                (width - int(width * 0.14), message_top, width - margin_px, height),
-                palette.warning,
-                max_size=24,
-                bold=False,
-            )
+    if not speech_ok and not prompt:
+        draw_text(
+            canvas,
+            "sin voz",
+            (width - int(width * 0.14), message_top, width - margin_px, message_bottom),
+            palette.warning,
+            max_size=24,
+            bold=False,
+        )
 
     if gaze_point is not None:
         x = int(gaze_point[0] * width)
@@ -254,31 +277,134 @@ def render_alignment(
     *,
     high_contrast: bool = True,
     signal_ok: bool = True,
+    reason: str | None = None,
 ) -> npt.NDArray[np.uint8]:
     """Quick-alignment screen: one point at a time, a ring that fills while collecting."""
+    title = f"Ajuste rápido · mire el punto ({min(snapshot.index + 1, snapshot.total)}/"
+    title += f"{snapshot.total})"
+    if reason:
+        title = f"{reason} · {title}"
+    if not signal_ok:
+        title = "Ajuste rápido · no se ven bien los ojos"
+    return _target_screen(
+        width,
+        height,
+        title,
+        snapshot.target,
+        snapshot.collecting,
+        snapshot.progress,
+        high_contrast=high_contrast,
+        warning=not signal_ok,
+        footer="S = saltar ajuste · ESC = salir",
+    )
+
+
+def render_calibration(
+    width: int,
+    height: int,
+    snapshot: CalibrationSnapshot,
+    *,
+    high_contrast: bool = True,
+    signal_ok: bool = True,
+) -> npt.NDArray[np.uint8]:
+    """Calibration screen (~35 s): grid points, then head movement on the centre point."""
+    seconds = round(snapshot.seconds_left)
+    if snapshot.head_movement:
+        title = "Siga mirando el punto y mueva despacio la cabeza (sí y no)"
+    else:
+        title = f"Calibración · mire el punto · quedan {seconds} s"
+    if not signal_ok:
+        title = "Calibración · no se ven bien los ojos: acérquese o mejore la luz"
+    return _target_screen(
+        width,
+        height,
+        title,
+        snapshot.target,
+        snapshot.collecting,
+        snapshot.progress,
+        high_contrast=high_contrast,
+        warning=not signal_ok,
+        footer=f"Punto {min(snapshot.index + 1, snapshot.total)} de {snapshot.total} · ESC = salir",
+    )
+
+
+def render_summary(
+    width: int,
+    height: int,
+    title: str,
+    lines: list[tuple[str, bool | None]],
+    *,
+    high_contrast: bool = True,
+    footer: str = "",
+) -> npt.NDArray[np.uint8]:
+    """Full-screen summary (calibration quality, test results). ``lines``: (text, good?)."""
+    palette = HIGH_CONTRAST if high_contrast else SOFT
+    canvas = np.empty((height, width, 3), dtype=np.uint8)
+    canvas[:] = palette.background
+    margin = int(width * 0.06)
+    draw_text(
+        canvas,
+        title,
+        (margin, int(height * 0.06), width - margin, int(height * 0.2)),
+        palette.status_text,
+        max_size=int(height * 0.08),
+    )
+    row_h = int(height * 0.09)
+    top = int(height * 0.25)
+    for index, (text, good) in enumerate(lines):
+        color = palette.status_text if good is None else palette.good if good else palette.warning
+        draw_text(
+            canvas,
+            text,
+            (margin, top + index * row_h, width - margin, top + (index + 1) * row_h),
+            color,
+            max_size=int(row_h * 0.55),
+            bold=False,
+            align="left",
+        )
+    if footer:
+        draw_text(
+            canvas,
+            footer,
+            (0, int(height * 0.88), width, height),
+            palette.muted,
+            max_size=int(height * 0.04),
+            bold=False,
+        )
+    return canvas
+
+
+def _target_screen(
+    width: int,
+    height: int,
+    title: str,
+    target: tuple[float, float] | None,
+    collecting: bool,
+    progress: float,
+    *,
+    high_contrast: bool,
+    warning: bool,
+    footer: str,
+) -> npt.NDArray[np.uint8]:
     palette = HIGH_CONTRAST if high_contrast else SOFT
     canvas = np.empty((height, width, 3), dtype=np.uint8)
     canvas[:] = palette.background
     status_h = int(height * STATUS_FRACTION)
-    title = f"Ajuste rápido · mire el punto ({min(snapshot.index + 1, snapshot.total)}/"
-    title += f"{snapshot.total})"
-    if not signal_ok:
-        title = "Ajuste rápido · no se ven bien los ojos"
     draw_text(
         canvas,
         title,
         (int(width * _MARGIN), 0, width - int(width * _MARGIN), status_h),
-        palette.status_text if signal_ok else palette.warning,
-        max_size=max(14, status_h // 2),
+        palette.warning if warning else palette.status_text,
+        max_size=max(14, int(status_h * 0.55)),
         bold=False,
         align="left",
     )
-    if snapshot.target is not None:
-        x, y = int(snapshot.target[0] * width), int(snapshot.target[1] * height)
-        radius = max(18, min(width, height) // 30)
+    if target is not None:
+        x, y = int(target[0] * width), int(target[1] * height)
+        radius = max(14, min(width, height) // 36)
         cv2.circle(canvas, (x, y), radius * 3, palette.card, -1, cv2.LINE_AA)
-        if snapshot.collecting:
-            angle = int(360 * snapshot.progress)
+        if collecting:
+            angle = int(360 * progress)
             cv2.ellipse(
                 canvas,
                 (x, y),
@@ -296,7 +422,7 @@ def render_alignment(
         cv2.circle(canvas, (x, y), max(4, radius // 3), palette.background, -1, cv2.LINE_AA)
     draw_text(
         canvas,
-        "S = saltar ajuste · ESC = salir",
+        footer,
         (0, height - status_h, width, height),
         palette.muted,
         max_size=max(12, status_h // 3),
@@ -333,7 +459,7 @@ def _draw_indicators(
             label,
             (x + 2 * radius + 10, 0, x + slot, height),
             palette.muted,
-            max_size=radius * 2,
+            max_size=int(height * 0.42),
             bold=False,
             align="left",
         )
@@ -344,7 +470,7 @@ def _draw_indicators(
             "Ajustado" if aligned else "Sin ajuste",
             (x, 0, width - 8, height),
             palette.good if aligned else palette.muted,
-            max_size=radius * 2,
+            max_size=int(height * 0.42),
             bold=False,
             align="left",
         )
@@ -421,6 +547,8 @@ __all__ = [
     "option_centers",
     "render_alignment",
     "render_board",
+    "render_calibration",
+    "render_summary",
     "screen_to_board",
     "status_text",
 ]

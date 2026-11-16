@@ -1,0 +1,239 @@
+"""End-to-end run of the real board runner with a synthetic person, camera and clock.
+
+Covers: calibration at start -> model fitting (landmarks lack vertical signal, as in the
+2026-11-16 session B, so eye images must carry it) -> summary -> instructed test -> free use of
+the bottom row -> moving closer triggers automatic re-alignment -> implicit learning.
+It verifies software behaviour only; real accuracy needs a person (``mekasa.ps1 prueba``).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field, replace
+from pathlib import Path
+from typing import Any
+
+import cv2 as real_cv2
+import numpy as np
+import pytest
+
+from mekasa_gaze.core.board import CommunicationConfig
+from mekasa_gaze.core.config import GuidedValidationConfig
+from mekasa_gaze.core.domain import CameraFrame
+from mekasa_gaze.core.eye_mode import EyeMode
+from mekasa_gaze.runners import communication_board as board
+from mekasa_gaze.runners.board_simulation import FakeSpeech
+from mekasa_gaze.tracking import frame_source, landmarker
+from mekasa_gaze.tracking.frame_source import CaptureStatus
+from mekasa_gaze.ui import board_view
+from synthetic_face import observation_for
+
+ROOT = Path(__file__).resolve().parents[3]
+FPS = 30.0
+
+
+@dataclass
+class World:
+    """Shared state of the fake clock, camera, person and keyboard."""
+
+    t: float = 1000.0
+    gaze: tuple[float, float] = (0.5, 0.6)
+    face_width: float = 0.35
+    keys: list[int] = field(default_factory=list)
+    summaries: list[str] = field(default_factory=list)
+    alignment_reasons: list[str | None] = field(default_factory=list)
+    board_started_at: float | None = None
+    summary_seen_at: float | None = None
+    seq: int = 0
+
+
+def _install_fakes(monkeypatch: pytest.MonkeyPatch, world: World, speech: FakeSpeech) -> None:
+    class Grabber:
+        def __init__(self, *_: object, **__: object) -> None:
+            pass
+
+        def __enter__(self) -> Grabber:
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def take_new(self) -> CameraFrame:
+            world.seq += 1
+            return CameraFrame(world.seq, int(world.t * 1e9), 0.0, np.zeros((4, 4, 3), np.uint8))
+
+        def status(self) -> CaptureStatus:
+            return CaptureStatus(True, world.seq, 0, 0, None)
+
+        @property
+        def camera_settings(self) -> None:
+            return None
+
+    class Extractor:
+        def __init__(self, *_: object, **__: object) -> None:
+            self._rng = np.random.default_rng(5)
+
+        def __enter__(self) -> Extractor:
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def extract(self, _rgb: object, *, sequence: int, timestamp_ns: int) -> Any:
+            return observation_for(
+                world.gaze,
+                sequence=sequence,
+                timestamp_ns=timestamp_ns,
+                face_width=world.face_width,
+                rng=self._rng,
+            )
+
+    class CV2:
+        def __getattr__(self, name: str) -> Any:
+            return getattr(real_cv2, name)
+
+        def namedWindow(self, *_: object) -> None: ...
+        def setWindowProperty(self, *_: object) -> None: ...
+        def resizeWindow(self, *_: object) -> None: ...
+        def setMouseCallback(self, *_: object) -> None: ...
+        def imshow(self, *_: object) -> None: ...
+        def destroyWindow(self, *_: object) -> None: ...
+
+        def waitKey(self, _delay: int) -> int:
+            world.t += 1 / FPS
+            return world.keys.pop(0) if world.keys else 255
+
+    def wrap(name: str, hook: Any) -> None:
+        original = getattr(board, name)
+
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            hook(*args, **kwargs)
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(board, name, wrapper)
+
+    def on_calibration(_w: int, _h: int, snapshot: Any, **_: Any) -> None:
+        if snapshot.target is not None:
+            world.gaze = snapshot.target
+
+    def on_alignment(_w: int, _h: int, snapshot: Any, **kwargs: Any) -> None:
+        if snapshot.index == 0 and not snapshot.collecting:
+            world.alignment_reasons.append(kwargs.get("reason"))
+        if snapshot.target is not None:
+            world.gaze = snapshot.target
+
+    def on_summary(_w: int, _h: int, title: str, *_: Any, **__: Any) -> None:
+        if not world.summaries or world.summaries[-1] != title:
+            world.summaries.append(title)
+            world.summary_seen_at = world.t
+        if title == "Resultado de la prueba":
+            world.keys.append(13)  # ENTER: go to the board
+        elif world.summary_seen_at is not None and world.t - world.summary_seen_at > 8.0:
+            world.keys.append(13)  # quality below "good": continue anyway
+
+    monkeypatch.setattr(board, "perf_counter", lambda: world.t)
+    monkeypatch.setattr(board, "cv2", CV2())
+    monkeypatch.setattr(board, "create_speech_backend", lambda **_: speech)
+    monkeypatch.setattr(frame_source, "LatestFrameGrabber", Grabber)
+    monkeypatch.setattr(landmarker, "FaceFeatureExtractor", Extractor)
+    wrap("render_calibration", on_calibration)
+    wrap("render_alignment", on_alignment)
+    wrap("render_summary", on_summary)
+
+
+def _center(area: tuple[float, float, float, float], key: str) -> tuple[float, float]:
+    option = CommunicationConfig().board().option(key)
+    bounds = option.bounds
+    return board_view.board_to_screen(
+        ((bounds[0] + bounds[2]) / 2, (bounds[1] + bounds[3]) / 2), area
+    )
+
+
+def test_board_session_calibrates_tests_and_adapts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    world = World()
+    speech = FakeSpeech()
+    _install_fakes(monkeypatch, world, speech)
+    guided = replace(
+        GuidedValidationConfig.load(ROOT / "config" / "experiment-001.toml"),
+        canvas_width=640,
+        canvas_height=360,
+    )
+    area = board_view.board_area(640, 360)
+    communication = CommunicationConfig.load(ROOT / "config" / "communication.toml")
+    gap = board_view.board_to_screen((0.5, 0.5), area)
+
+    # Free-use script after the test: (start, end, target or None for the gap, face width).
+    # Starts by looking away: after a gaze selection the same option needs an exit first
+    # (rearm-on-exit), and the test may have ended on WATER.
+    script = [
+        (0.0, 1.5, None, 0.35),
+        (1.5, 4.0, "WATER", 0.35),
+        (4.0, 5.5, None, 0.35),
+        (5.5, 8.0, "HELP", 0.35),
+        (8.0, 9.5, None, 0.35),
+        (9.5, 14.5, None, 0.42),  # moves closer and stays -> auto re-alignment
+        (14.5, 30.0, "WATER", 0.42),
+    ]
+
+    def on_board(*args: Any, **kwargs: Any) -> None:
+        prompt = kwargs.get("prompt")
+        layout = args[2]
+        if prompt and "mire" in prompt:
+            label = prompt.rsplit("mire ", 1)[1]
+            key = next(option.key for option in layout.options if option.label == label)
+            world.gaze = _center(area, key)
+            return
+        if prompt:
+            world.gaze = gap
+            return
+        if world.board_started_at is None:
+            world.board_started_at = world.t
+        elapsed = world.t - world.board_started_at
+        for start, end, target, width in script:
+            if start <= elapsed < end:
+                world.face_width = width
+                world.gaze = gap if target is None else _center(area, target)
+                break
+        else:
+            world.keys.append(27)
+
+    wrap_original = board.render_board
+
+    def render_board_hook(*args: Any, **kwargs: Any) -> Any:
+        on_board(*args, **kwargs)
+        return wrap_original(*args, **kwargs)
+
+    monkeypatch.setattr(board, "render_board", render_board_hook)
+
+    report = board.run_board(
+        communication=communication,
+        guided_config=guided,
+        calibrations=board.calibration_paths(tmp_path),
+        face_model_path=tmp_path / "unused.task",
+        smoothing_alpha=0.25,
+        speech_settings={},
+        fullscreen=False,
+        calibration_dir=tmp_path,
+        test_repeats=2,
+    )
+
+    fits = report["calibration"]["fits"]
+    both = fits["BOTH"]
+    assert both["kind"] in ("appearance", "hybrid"), both
+    assert both["metrics"]["quadrant_accuracy"] >= 0.9
+    assert (tmp_path / "session-gaze-model-both.json").exists()
+    assert world.summaries[:2] == ["Resultado de la calibración", "Resultado de la prueba"]
+
+    test = report["test"]
+    assert test["trials"] == 8
+    assert test["accuracy"] >= 0.75, test["confusion"]
+
+    assert "Quiero agua" in speech.spoken and "Necesito ayuda" in speech.spoken
+    adaptation = report["measurement"]["adaptation"]
+    assert adaptation["auto_realignments"] >= 1
+    assert "Cambió de posición" in world.alignment_reasons
+    assert adaptation["implicit_samples_added"] >= 2
+    assert speech.spoken.count("Quiero agua") >= 2  # bottom row still works after moving
+    assert report["privacy"]["eye_patches_persisted"] is False
+    assert report["configuration"]["eye_mode_at_end"] == EyeMode.BOTH.value

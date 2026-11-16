@@ -161,6 +161,7 @@ def calibrate_from_report(
     *,
     report_sha256: str | None = None,
     eye_mode: EyeMode | None = None,
+    reclassify_ear_threshold: float | None = None,
 ) -> dict[str, Any]:
     """Train a personal ridge regression gaze calibration model from a guided experiment report.
 
@@ -177,6 +178,11 @@ def calibrate_from_report(
             non-ocular features) using only frames where that eye is open; ``BOTH`` uses only
             frames with both eyes open. ``None`` keeps the legacy behaviour (any open eye,
             mean imputation of the missing eye).
+        reclassify_ear_threshold: Optional explicit re-analysis. Eye states are recomputed
+            from the stored EAR, vertical span and iris features with this closed-eye EAR
+            threshold (the report's span and iris limits are kept). Frames already marked
+            as possible blinks or with invalid tracking stay excluded. The change is recorded
+            in the artifact and must be validated prospectively.
 
     Returns:
         dict[str, Any]: Fully serializable calibration model artifact dictionary.
@@ -185,6 +191,9 @@ def calibrate_from_report(
         ValueError: If report schema is invalid, required samples are missing, or alpha is invalid.
     """
     _validate_report(report, config)
+    reanalysis: dict[str, Any] | None = None
+    if reclassify_ear_threshold is not None:
+        report, reanalysis = reclassify_eye_states(report, reclassify_ear_threshold)
     feature_names = (
         config.feature_names
         if eye_mode is None
@@ -289,6 +298,7 @@ def calibrate_from_report(
         "feature_names": list(feature_names),
         "eye_mode": eye_mode_of_features(feature_names).value,
         "eye_mode_frame_filter": "required_eyes_open" if eye_mode else "any_open_eye",
+        "eye_state_reanalysis": reanalysis,
         "preprocessing": {
             "feature_mean": feature_mean.tolist(),
             "feature_scale": feature_scale.tolist(),
@@ -521,6 +531,81 @@ def _calibration_records(
     return records
 
 
+def reclassify_eye_states(
+    report: dict[str, Any], ear_threshold: float
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Recompute per-eye states from stored features with a different closed-eye threshold.
+
+    Motivation: eyelids follow downward gaze, so a fixed population EAR threshold can label
+    every downward fixation as "closed" for some people. This re-analysis is explicit and
+    recorded; it never touches frames flagged as possible blinks or with invalid tracking.
+
+    Returns:
+        A shallow copy of the report with updated observations, and a summary dict.
+    """
+    if not 0.0 < ear_threshold < 0.5:
+        raise ValueError("reclassify EAR threshold must be within (0, 0.5)")
+    configuration = report["protocol"]["configuration"]
+    min_span = float(configuration["min_eye_vertical_span"])
+    max_iris = float(configuration["max_abs_iris_coordinate"])
+    original = float(configuration["eye_closed_ear_threshold"])
+    changed: Counter[str] = Counter()
+    observations: list[dict[str, Any]] = []
+    for item in report["observations"]:
+        if item["gaze_validity"] in ("POSSIBLE_BLINK", "TRACKING_INVALID"):
+            observations.append(item)
+            continue
+        features = item.get("features", {})
+        states = []
+        for side in ("left", "right"):
+            try:
+                ear = float(features[f"{side}_eye_aspect_ratio"])
+                span = float(features[f"{side}_eye_vertical_span"])
+                iris_x = float(features[f"{side}_iris_x"])
+                iris_y = float(features[f"{side}_iris_y"])
+            except (KeyError, TypeError, ValueError):
+                states.append(EyeState.INVALID)
+                continue
+            if not all(isfinite(v) for v in (ear, span, iris_x, iris_y)):
+                states.append(EyeState.INVALID)
+            elif ear < ear_threshold:
+                states.append(EyeState.CLOSED)
+            elif span < min_span or abs(iris_x) > max_iris or abs(iris_y) > max_iris:
+                states.append(EyeState.INVALID)
+            else:
+                states.append(EyeState.OPEN)
+        left, right = states
+        if (left, right) == (EyeState.OPEN, EyeState.OPEN):
+            validity = "GAZE_VALID"
+        elif EyeState.OPEN in (left, right):
+            validity = "GAZE_PARTIAL"
+        elif EyeState.CLOSED in (left, right):
+            validity = "EYE_CLOSED"
+        else:
+            validity = "GAZE_INVALID"
+        if validity != item["gaze_validity"]:
+            changed[f"{item['gaze_validity']}->{validity}"] += 1
+        observations.append(
+            {
+                **item,
+                "gaze_validity": validity,
+                "left_eye_state": left.value,
+                "right_eye_state": right.value,
+            }
+        )
+    summary = {
+        "original_ear_threshold": original,
+        "reanalysis_ear_threshold": ear_threshold,
+        "kept_min_eye_vertical_span": min_span,
+        "kept_max_abs_iris_coordinate": max_iris,
+        "validity_changes": dict(sorted(changed.items())),
+        "blink_and_tracking_invalid_frames": "unchanged_and_excluded",
+        "status": "exploratory re-analysis chosen after inspecting this report; "
+        "validate prospectively",
+    }
+    return {**report, "observations": observations}, summary
+
+
 def _report_value(item: dict[str, Any], name: str) -> float | None:
     if name.startswith("left_iris_") and item["left_eye_state"] != EyeState.OPEN.value:
         return float("nan")
@@ -746,6 +831,12 @@ def _parser() -> argparse.ArgumentParser:
         help="BOTH, LEFT or RIGHT (anatomical). Omit for the legacy any-open-eye model.",
     )
     parser.add_argument(
+        "--reclassify-ear-threshold",
+        type=float,
+        default=None,
+        help="Explicit re-analysis: recompute eye states with this closed-eye EAR threshold.",
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         default=Path("work/calibration/personal-gaze-model.json"),
@@ -771,6 +862,7 @@ def main(argv: list[str] | None = None) -> int:
             CalibrationConfig.load(args.config),
             report_sha256=_sha256(args.report),
             eye_mode=args.eye_mode,
+            reclassify_ear_threshold=args.reclassify_ear_threshold,
         )
         write_calibration_artifact(artifact, args.output)
     except (FileNotFoundError, KeyError, OSError, ValueError, json.JSONDecodeError) as error:
@@ -781,6 +873,7 @@ def main(argv: list[str] | None = None) -> int:
             {
                 "model": str(args.output),
                 "eye_mode": artifact["eye_mode"],
+                "eye_state_reanalysis": artifact["eye_state_reanalysis"],
                 "split": artifact["split"],
                 "metrics": artifact["metrics"],
                 "warning": "Experimental technical result; not clinical validation.",

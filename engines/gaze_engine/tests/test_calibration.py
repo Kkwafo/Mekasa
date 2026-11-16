@@ -232,3 +232,34 @@ def test_calibration_model_rejects_pre_head_movement_artifact() -> None:
 
     with pytest.raises(ValueError, match="predates blocked head-movement"):
         CalibrationModel.from_artifact(artifact)
+
+
+def test_ear_reanalysis_reopens_downward_gaze_but_keeps_blinks_excluded() -> None:
+    report = _report()
+    protocol = report["protocol"]
+    assert isinstance(protocol, dict)
+    protocol["configuration"].update(
+        eye_closed_ear_threshold=0.15, min_eye_vertical_span=0.008, max_abs_iris_coordinate=3.0
+    )
+    observations = report["observations"]
+    assert isinstance(observations, list)
+    for item in observations:
+        item["features"].update(
+            left_eye_aspect_ratio=0.12,
+            right_eye_aspect_ratio=0.12,
+            left_eye_vertical_span=0.01,
+            right_eye_vertical_span=0.01,
+            left_iris_y=0.3,
+            right_iris_x=0.5,
+        )
+        item.update(gaze_validity="EYE_CLOSED", left_eye_state="CLOSED", right_eye_state="CLOSED")
+    observations[0]["gaze_validity"] = "POSSIBLE_BLINK"
+
+    with pytest.raises(ValueError):
+        calibrate_from_report(report, _config())
+    artifact = calibrate_from_report(report, _config(), reclassify_ear_threshold=0.09)
+
+    reanalysis = artifact["eye_state_reanalysis"]
+    assert reanalysis["reanalysis_ear_threshold"] == 0.09
+    assert reanalysis["validity_changes"] == {"EYE_CLOSED->GAZE_VALID": len(observations) - 1}
+    assert artifact["split"]["training_sample_counts"]["CENTER"] == 5

@@ -352,3 +352,49 @@ def test_stats_omit_per_option_counts_by_default() -> None:
     Clock().run(session, YES, 1.3)
     assert "confirmations_by_option" not in session.stats.as_dict()
     assert session.stats.as_dict(include_options=True)["confirmations_by_option"] == {"YES": 1}
+
+
+# ---------------------------------------------------------------- blink-length dropouts
+
+
+def _dwell_with_gap(session: CommunicationSession, gap_seconds: float, **gap: object) -> list[str]:
+    clock = Clock()
+    confirmed = clock.run(session, WATER, 0.3 + 0.5)  # recovery + 0.5 s of dwell
+    confirmed += clock.run(session, WATER, gap_seconds, **gap)
+    # ~0.43 s of dwell before the gap + 0.6 s after: confirms only if progress was kept
+    # (a cancelled dwell would need the full 0.9 s after the gap).
+    confirmed += clock.run(session, WATER, 0.6)
+    return confirmed
+
+
+def test_short_eye_dropout_freezes_dwell_without_cancelling() -> None:
+    session = _session(eye_dropout_grace_seconds=0.2)
+    assert _dwell_with_gap(session, 0.1, right=EyeState.CLOSED) == ["WATER"]
+    assert session.stats.dropout_ticks_bridged == 3
+    assert session.stats.focus_cancellations == 0
+
+
+def test_eye_dropout_does_not_advance_progress() -> None:
+    session = _session(eye_dropout_grace_seconds=0.2)
+    clock = Clock()
+    clock.run(session, WATER, 0.3 + 0.8)
+    # 0.8 s + 0.15 s gap would exceed 0.9 s if the gap counted; it must not confirm here.
+    assert clock.run(session, WATER, 0.15, left=EyeState.CLOSED) == []
+
+
+def test_long_eye_dropout_still_cancels() -> None:
+    session = _session(eye_dropout_grace_seconds=0.2)
+    assert _dwell_with_gap(session, 0.4, right=EyeState.CLOSED) == []
+    assert session.stats.focus_cancellations >= 1
+
+
+@pytest.mark.parametrize("gap", [{"frame_age": None}, {"frame_age": 0.5}, {"tracking_ok": False}])
+def test_hard_losses_are_never_bridged(gap: dict[str, object]) -> None:
+    session = _session(eye_dropout_grace_seconds=0.2)
+    assert _dwell_with_gap(session, 0.1, **gap) == []
+    assert session.stats.dropout_ticks_bridged == 0
+
+
+def test_grace_zero_restores_strict_cancellation() -> None:
+    session = _session(eye_dropout_grace_seconds=0.0)
+    assert _dwell_with_gap(session, 0.1, right=EyeState.CLOSED) == []

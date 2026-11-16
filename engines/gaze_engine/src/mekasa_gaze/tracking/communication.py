@@ -98,6 +98,7 @@ class SessionStats:
     focus_cancellations: int = 0
     pending_discarded: int = 0
     signal_loss_events: int = 0
+    dropout_ticks_bridged: int = 0
 
     def as_dict(self, *, include_options: bool = False) -> dict[str, object]:
         """Serialize counters for JSON reports.
@@ -113,6 +114,7 @@ class SessionStats:
             "focus_cancellations": self.focus_cancellations,
             "pending_discarded": self.pending_discarded,
             "signal_loss_events": self.signal_loss_events,
+            "dropout_ticks_bridged": self.dropout_ticks_bridged,
         }
         if include_options:
             result["confirmations_by_option"] = dict(sorted(self.confirmations_by_option.items()))
@@ -152,6 +154,8 @@ class CommunicationSession:
         self._cooldown_until = float("-inf")
         self._rearm: BoardOption | None = None
         self._message: str | None = None
+        self._last_valid_at: float | None = None
+        self._last_tick_at: float | None = None
         self.stats = SessionStats()
 
     # ------------------------------------------------------------------ properties
@@ -236,6 +240,8 @@ class CommunicationSession:
 
     def _update(self, tick: GazeInput) -> SessionUpdate:
         now = tick.now_seconds
+        previous_tick = self._last_tick_at
+        self._last_tick_at = now
         if not self.gaze_enabled:
             self._flush()
             return self._snapshot(SessionState.NO_CALIBRATION)
@@ -244,6 +250,22 @@ class CommunicationSession:
             return self._snapshot(SessionState.PAUSED)
 
         reason = self._abstain_reason(tick)
+        if reason is not None and self._bridgeable(reason, now):
+            # A blink-length eye dropout: hold everything, advance nothing, emit nothing.
+            if self._focus_since is not None and previous_tick is not None:
+                self._focus_since += max(0.0, now - previous_tick)
+            self.stats.dropout_ticks_bridged += 1
+            progress = 0.0
+            if self._focus_since is not None:
+                progress = min(0.999, (now - self._focus_since) / self._config.dwell_seconds)
+            state = SessionState.FOCUSING if self._focused is not None else SessionState.READY
+            if self._pending is not None:
+                state = SessionState.AWAITING_CONFIRMATION
+            if now < self._cooldown_until:
+                state = SessionState.COOLDOWN
+            elif self._rearm is not None and self._focused is None:
+                state = SessionState.AWAITING_EXIT
+            return self._snapshot(state, progress=progress, abstain_reason=reason)
         if reason is not None:
             if not self._was_lost:
                 self.stats.signal_loss_events += 1
@@ -252,6 +274,7 @@ class CommunicationSession:
             return self._snapshot(SessionState.SIGNAL_LOST, abstain_reason=reason)
         assert tick.prediction is not None
         point = tick.prediction
+        self._last_valid_at = now
 
         if self._signal_since is None:
             self._signal_since = now
@@ -306,6 +329,20 @@ class CommunicationSession:
         return self._snapshot(SessionState.AWAITING_CONFIRMATION)
 
     # ------------------------------------------------------------------ helpers
+    def _bridgeable(self, reason: AbstainReason, now: float) -> bool:
+        """Eye-only dropouts shorter than the grace period do not cancel a stable signal.
+
+        Hard failures (no frame, stale frame, lost tracking or placement) never qualify.
+        """
+        grace = self._config.eye_dropout_grace_seconds
+        return (
+            grace > 0.0
+            and reason in (AbstainReason.EYE_SIGNAL, AbstainReason.NO_PREDICTION)
+            and not self._was_lost
+            and self._last_valid_at is not None
+            and now - self._last_valid_at <= grace
+        )
+
     def _abstain_reason(self, tick: GazeInput) -> AbstainReason | None:
         if tick.frame_timestamp_seconds is None:
             return AbstainReason.NO_FRAME
@@ -360,6 +397,7 @@ class CommunicationSession:
         self._cancel_focus()
         self._discard_pending()
         self._signal_since = None
+        self._last_valid_at = None
         self._was_lost = True
 
     def _snapshot(

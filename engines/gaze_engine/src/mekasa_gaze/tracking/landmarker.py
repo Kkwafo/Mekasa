@@ -11,6 +11,7 @@ import numpy.typing as npt
 
 from mekasa_gaze.core.domain import FeatureObservation, TrackingState
 from mekasa_gaze.tracking.geometry import (
+    canthal_vertical_offset,
     euclidean_2d,
     euler_from_transform,
     eye_aspect_ratio,
@@ -61,6 +62,16 @@ def features_from_landmarks(
         landmarks[_RIGHT_EYE[2]],
         landmarks[_RIGHT_EYE[4]],
     )
+    left_v = canthal_vertical_offset(
+        [landmarks[index] for index in _LEFT_IRIS],
+        landmarks[_LEFT_EYE[0]],
+        landmarks[_LEFT_EYE[3]],
+    )
+    right_v = canthal_vertical_offset(
+        [landmarks[index] for index in _RIGHT_IRIS],
+        landmarks[_RIGHT_EYE[0]],
+        landmarks[_RIGHT_EYE[3]],
+    )
     coordinates = np.asarray(landmarks, dtype=np.float64)
     minimum = np.min(coordinates[:, :2], axis=0)
     maximum = np.max(coordinates[:, :2], axis=0)
@@ -75,6 +86,8 @@ def features_from_landmarks(
         "left_iris_y": left_y,
         "right_iris_x": right_x,
         "right_iris_y": right_y,
+        "left_iris_v": left_v,
+        "right_iris_v": right_v,
         "face_center_x": float(center[0]),
         "face_center_y": float(center[1]),
         "face_width": float(size[0]),

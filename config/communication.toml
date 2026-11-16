@@ -13,6 +13,11 @@ hysteresis_margin = 0.03
 recovery_seconds = 0.5
 # Frames older than this never drive selection.
 max_frame_age_seconds = 0.25
+# Eye-only dropouts (blink, a frame with the lid too low) up to this long freeze dwell
+# progress instead of cancelling it. Nothing advances or is emitted during the gap.
+# Camera, stale-frame, tracking and placement losses still cancel immediately.
+# 2026-11-16: ~15% scattered eye dropouts made the bottom row unreachable without it.
+eye_dropout_grace_seconds = 0.2
 # Optional second dwell on the same option (leave, return, dwell) before speaking.
 confirmation_required = false
 confirmation_window_seconds = 4.0

@@ -1,0 +1,103 @@
+# Quick profile (~1.5-2 min instead of ~4.5 min). Same 9 targets and 3 blocks (block 3 is
+# held out for validation); shorter settle/measure windows. People who need more time to
+# move their eyes or rest should use config/experiment-001.toml.
+[camera]
+index = 0
+backend = "auto"
+width = 640
+height = 480
+target_fps = 30.0
+
+[tracking]
+min_face_detection_confidence = 0.5
+min_face_presence_confidence = 0.5
+min_tracking_confidence = 0.5
+
+# Camera-relative engineering guidance. The protocol only starts while the
+# detected face width is inside this band. It is not a clinical threshold.
+[placement]
+# The 2026-09-21 schema-5 run retained 100% tracking and 98.81% usable gaze
+# down to 0.264. A 0.25 floor keeps measured margin while allowing a
+# substantially more comfortable camera distance.
+min_face_width = 0.25
+max_face_width = 0.45
+
+[experiment]
+warmup_seconds = 3.0
+measure_seconds = 30.0
+display = false
+
+# Experimental heuristics for rejecting frames before gaze analysis. These
+# values are engineering defaults, not clinically validated thresholds.
+[eye_validity]
+closed_ear_threshold = 0.15
+min_vertical_span = 0.008
+max_abs_iris_coordinate = 3.0
+max_blink_seconds = 0.45
+
+[guided]
+tracking_stable_seconds = 1.0
+countdown_seconds = 2.0
+transition_seconds = 0.6
+acquisition_seconds = 1.0
+measurement_seconds = 1.5
+center_stability_seconds = 3.0
+head_movement_seconds = 3.0
+completion_display_seconds = 2.0
+min_samples_per_target = 20
+discrimination_blocks = 3
+target_order_seed = 1001
+
+[rendering]
+canvas_width = 1280
+canvas_height = 720
+debug_panel_fraction = 0.30
+target_radius_pixels = 30
+fullscreen = true
+show_face_box = true
+show_landmarks = true
+
+[audio]
+enabled = true
+required = true
+language = "es-ES"
+rate = 0
+volume = 100
+hide_visual_instructions_when_active = true
+
+[targets.CENTER]
+x = 0.50
+y = 0.50
+
+[targets.LEFT]
+x = 0.15
+y = 0.50
+
+[targets.RIGHT]
+x = 0.85
+y = 0.50
+
+[targets.UP]
+x = 0.50
+y = 0.15
+
+[targets.DOWN]
+x = 0.50
+y = 0.85
+
+# Diagonal targets directly sample the centers used by Experiment 003.
+[targets.TOP_LEFT]
+x = 0.25
+y = 0.25
+
+[targets.TOP_RIGHT]
+x = 0.75
+y = 0.25
+
+[targets.BOTTOM_LEFT]
+x = 0.25
+y = 0.75
+
+[targets.BOTTOM_RIGHT]
+x = 0.75
+y = 0.75

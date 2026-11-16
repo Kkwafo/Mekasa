@@ -12,11 +12,20 @@ head_movement_training_weight = 8
 min_accepted_face_width = 0.25
 max_accepted_face_width = 0.45
 require_audio_prompts = true
+# 2026-11-16: eye aperture (EAR) added because eyelids follow vertical gaze; on that
+# session's held-out block it raised 2x2 frame accuracy for single-eye modes (RIGHT 68->97%,
+# LEFT 51->76%) and 9-target hit rate for BOTH (40->48%). Selected on the same block:
+# confirm prospectively. *_iris_v (canthus-anchored vertical offset) is an untested
+# hypothesis; reports recorded before it existed need config/experiment-002-legacy.toml.
 feature_names = [
   "left_iris_x",
   "left_iris_y",
+  "left_iris_v",
   "right_iris_x",
   "right_iris_y",
+  "right_iris_v",
+  "left_eye_aspect_ratio",
+  "right_eye_aspect_ratio",
   "head_yaw_degrees",
   "head_pitch_degrees",
   "head_roll_degrees",

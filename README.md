@@ -255,6 +255,17 @@ Expone cuatro grandes cuadrantes en pantalla con retroalimentación visual de pe
 uv run mekasa-region-evaluation
 ```
 
+### Uso rápido con PowerShell
+
+```powershell
+.\scripts\mekasa.ps1 instalar     # una sola vez
+.\scripts\mekasa.ps1 calibrar     # ~2 min: validación guiada rápida + 3 calibraciones
+.\scripts\mekasa.ps1 regiones     # ~2 min: acierto con consignas (opcional)
+.\scripts\mekasa.ps1 tablero      # ajuste de 4 puntos (~10 s) y tablero
+```
+
+Opciones del tablero: `-Ojo LEFT|RIGHT`, `-Dwell 1.2`, `-Disposicion binary-horizontal`, `-Confirmar`, `-SinAjuste`, `-Ventana`. Calibración completa (más tiempo por punto): `.\scripts\mekasa.ps1 calibrar -Perfil completo`. El umbral personal de ojo cerrado se cambia con `-UmbralOjoCerrado 0.15` (valor poblacional).
+
 ### Tablero de comunicación (SÍ / NO / AGUA / AYUDA)
 
 ```powershell
@@ -271,7 +282,9 @@ uv run mekasa-board --simulate            # replay sin cámara de todos los bloq
   ```
   Sin una calibración válida para el modo activo, la mirada no selecciona nada.
 * **Acceso directo:** las teclas `1`–`4` y el clic del mouse funcionan siempre, aun sin calibración.
-* **Otros controles:** `ESPACIO` pausa, `ENTER` confirma la opción pendiente, `M` cambia el modo ocular, `G` muestra el punto de mirada, `C` borra el mensaje y `ESC` sale.
+* **Otros controles:** `ESPACIO` pausa, `A` repite el ajuste rápido, `ENTER` confirma la opción pendiente, `M` cambia el modo ocular, `G` muestra el punto de mirada, `C` borra el mensaje y `ESC` sale.
+* **Ajuste rápido de sesión:** al abrir, el tablero pide mirar el centro de cada opción (unos 10 s) y corrige el desvío de postura de ese día. `S` lo salta.
+* **Parpadeos:** caídas de señal ocular de hasta 0,2 s congelan el progreso en lugar de cancelarlo; las pérdidas de cámara, imagen o rostro cancelan siempre.
 * **Bloqueos de seguridad:** una cámara desconectada, un frame vencido, tracking inválido, el ojo requerido no visible, la pausa o un cambio de modo vacían el foco y la confirmación pendiente.
 * **Si falla la voz:** el mensaje confirmado queda visible.
 

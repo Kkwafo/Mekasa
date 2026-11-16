@@ -157,6 +157,7 @@ class CommunicationConfig:
     hysteresis_margin: float = 0.03
     recovery_seconds: float = 0.5
     max_frame_age_seconds: float = 0.25
+    eye_dropout_grace_seconds: float = 0.2
     confirmation_required: bool = False
     confirmation_window_seconds: float = 4.0
     eye_mode: EyeMode = EyeMode.BOTH
@@ -176,6 +177,8 @@ class CommunicationConfig:
             raise ValueError("recovery_seconds must be non-negative")
         if not 0.0 < self.max_frame_age_seconds <= 2.0:
             raise ValueError("max_frame_age_seconds must be within (0, 2]")
+        if not 0.0 <= self.eye_dropout_grace_seconds <= 0.5:
+            raise ValueError("eye_dropout_grace_seconds must be within [0, 0.5]")
         if self.confirmation_window_seconds <= 0.0:
             raise ValueError("confirmation_window_seconds must be positive")
         if self.layout not in ("quadrant", "binary-horizontal", "binary-vertical"):
@@ -208,6 +211,9 @@ class CommunicationConfig:
             recovery_seconds=float(section.get("recovery_seconds", defaults.recovery_seconds)),
             max_frame_age_seconds=float(
                 section.get("max_frame_age_seconds", defaults.max_frame_age_seconds)
+            ),
+            eye_dropout_grace_seconds=float(
+                section.get("eye_dropout_grace_seconds", defaults.eye_dropout_grace_seconds)
             ),
             confirmation_required=bool(
                 section.get("confirmation_required", defaults.confirmation_required)

@@ -14,7 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from time import perf_counter
@@ -34,11 +34,31 @@ from mekasa_gaze.services.runtime import environment, source_revision
 from mekasa_gaze.services.speech import create_speech_backend
 from mekasa_gaze.tracking.calibration import CalibrationModel, load_calibration_model
 from mekasa_gaze.tracking.communication import CommunicationSession, GazeInput, SessionUpdate
-from mekasa_gaze.tracking.placement import PlacementAssessment, assess_face_placement
+from mekasa_gaze.tracking.placement import (
+    PlacementAssessment,
+    PlacementState,
+    assess_face_placement,
+)
+from mekasa_gaze.tracking.session_alignment import (
+    AffineCorrection,
+    AlignmentProcedure,
+    AlignmentSnapshot,
+)
 from mekasa_gaze.tracking.validity import ValidityAssessment, assess_gaze_validity
-from mekasa_gaze.ui.board_view import board_area, render_board, screen_to_board
+from mekasa_gaze.ui.board_view import (
+    board_area,
+    option_centers,
+    render_alignment,
+    render_board,
+    screen_to_board,
+)
 
 _WINDOW_NAME = "Mekasa - Tablero de comunicacion"
+_PLACEMENT_HINTS = {
+    PlacementState.TOO_FAR: "Acérquese un poco a la cámara",
+    PlacementState.TOO_CLOSE: "Aléjese un poco de la cámara",
+    PlacementState.NO_FACE: "Ubíquese frente a la cámara",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +70,7 @@ class PipelineResult:
     validity: ValidityAssessment
     placement: PlacementAssessment
     screen_point: tuple[float, float] | None
+    raw_screen_point: tuple[float, float] | None
     board_point: tuple[float, float] | None
     tracking_ok: bool
     processing_ms: float
@@ -69,11 +90,22 @@ class GazePipeline:
         area: tuple[float, float, float, float],
     ) -> None:
         self._extractor = extractor
-        self._validity_config = validity_config
+        self._base_validity_config = validity_config
+        self._validity_config = _personal_validity(validity_config, model)
         self._model = model
         self._eye_mode = eye_mode
         self._smoother = PredictionSmoother(smoothing_alpha)
         self._area = area
+        self._correction: AffineCorrection | None = None
+
+    @property
+    def closed_ear_threshold(self) -> float:
+        """Closed-eye EAR threshold in effect (personal if the calibration carries one)."""
+        return self._validity_config.eye_closed_ear_threshold
+
+    def set_correction(self, correction: AffineCorrection | None) -> None:
+        """Install (or clear) the session alignment applied after smoothing."""
+        self._correction = correction
 
     @property
     def eye_mode(self) -> EyeMode:
@@ -84,6 +116,8 @@ class GazePipeline:
         """Switch eye mode and model; resets smoothing so no estimate carries over."""
         self._eye_mode = mode
         self._model = model
+        self._validity_config = _personal_validity(self._base_validity_config, model)
+        self._correction = None
         self._smoother.update(None)
 
     def process(self, frame: CameraFrame) -> PipelineResult:
@@ -130,17 +164,30 @@ class GazePipeline:
                 )
             except ValueError:
                 raw = None
-        screen = self._smoother.update(raw)
+        smoothed = self._smoother.update(raw)
+        screen = smoothed
+        if smoothed is not None and self._correction is not None:
+            screen = self._correction.predict(smoothed)
         return PipelineResult(
             frame_timestamp_seconds=frame_timestamp_seconds,
             observation=observation,
             validity=validity,
             placement=placement,
             screen_point=screen,
+            raw_screen_point=smoothed,
             board_point=screen_to_board(screen, self._area),
             tracking_ok=tracking_ok,
             processing_ms=(perf_counter() - t0) * 1000.0,
         )
+
+
+def _personal_validity(
+    config: GuidedValidationConfig, model: CalibrationModel | None
+) -> GuidedValidationConfig:
+    """Use the calibration's personal closed-eye threshold when it has one."""
+    if model is None or model.closed_ear_threshold is None:
+        return config
+    return replace(config, eye_closed_ear_threshold=model.closed_ear_threshold)
 
 
 def gaze_input(result: PipelineResult | None, now: float, camera_connected: bool) -> GazeInput:
@@ -210,6 +257,7 @@ def run_board(
     smoothing_alpha: float,
     speech_settings: dict[str, Any],
     fullscreen: bool,
+    align: bool = True,
 ) -> dict[str, Any]:
     """Open the camera and run the interactive board until the user quits."""
     # Imported lazily so replay/simulation and tests do not need MediaPipe or a camera.
@@ -241,6 +289,9 @@ def run_board(
             target_fps=guided_config.target_fps,
         )
     )
+    alignments_completed = 0
+    aligned = False
+    alignment_error: float | None = None
     latencies: list[float] = []
     processing: list[float] = []
     speech_failures = 0
@@ -282,13 +333,62 @@ def run_board(
                 smoothing_alpha=smoothing_alpha,
                 area=area,
             )
+            alignment: AlignmentProcedure | None = None
+
+            def begin_alignment() -> AlignmentProcedure | None:
+                if not (align and session.gaze_enabled):
+                    return None
+                pipeline.set_correction(None)
+                session.pause()
+                speak_safely(speech, "Ajuste rápido. Mire cada punto hasta que se complete.")
+                return AlignmentProcedure(option_centers(session.layout, area))
+
+            def end_alignment(snapshot: AlignmentSnapshot | None) -> None:
+                nonlocal aligned, alignment_error, alignments_completed
+                correction = snapshot.correction if snapshot is not None else None
+                pipeline.set_correction(correction)
+                aligned = correction is not None
+                alignment_error = correction.training_error_median if correction else None
+                alignments_completed += int(aligned)
+                session.resume()
+
+            alignment = begin_alignment()
             while True:
                 frame = grabber.take_new()
                 if frame is not None:
                     last = pipeline.process(frame)
                     processing.append(last.processing_ms)
                 now = perf_counter()
-                tick = gaze_input(last, now, grabber.status().connected)
+                connected = grabber.status().connected
+
+                if alignment is not None:
+                    raw = last.raw_screen_point if (frame is not None and last) else None
+                    snapshot = alignment.update(now, raw if connected else None)
+                    key = cv2.waitKey(1 if frame is not None else 5) & 0xFF
+                    if key in (27, ord("q")):
+                        break
+                    if key in (ord("s"), ord("S")):
+                        end_alignment(None)
+                        alignment = None
+                        continue
+                    if snapshot.done:
+                        end_alignment(snapshot)
+                        alignment = None
+                        continue
+                    signal_ok = last is not None and last.raw_screen_point is not None
+                    cv2.imshow(
+                        _WINDOW_NAME,
+                        render_alignment(
+                            width,
+                            height,
+                            snapshot,
+                            high_contrast=communication.high_contrast,
+                            signal_ok=signal_ok,
+                        ),
+                    )
+                    continue
+
+                tick = gaze_input(last, now, connected)
                 update: SessionUpdate = session.update(tick)
                 if frame is not None and last is not None:
                     latencies.append((now - last.frame_timestamp_seconds) * 1000.0)
@@ -305,6 +405,10 @@ def run_board(
                     break
                 if key == ord(" "):
                     session.toggle_pause()
+                elif key in (ord("a"), ord("A")):
+                    alignment = begin_alignment()
+                    if alignment is not None:
+                        continue
                 elif key in (ord("c"), ord("C")):
                     session.clear_message()
                 elif key in (ord("g"), ord("G")):
@@ -315,6 +419,10 @@ def run_board(
                     session.set_eye_mode(eye_mode)
                     session.set_calibration(model.eye_mode if model else None)
                     pipeline.set_eye_mode(eye_mode, model)
+                    aligned = False
+                    alignment = begin_alignment()
+                    if alignment is not None:
+                        continue
                 elif key in (13, 10) and update.pending is not None:
                     update = session.select_direct(update.pending.key, now, source="keyboard")
                 elif ord("1") <= key <= ord("9"):
@@ -328,6 +436,14 @@ def run_board(
                     speech_ok = speak_safely(speech, update.confirmed.phrase)
                     speech_failures += 0 if speech_ok else 1
                     flash, flash_until = update.confirmed, now + 0.8
+                eyes = None
+                hint = None
+                if last is not None and connected:
+                    eyes = (
+                        last.validity.left_eye_state is EyeState.OPEN,
+                        last.validity.right_eye_state is EyeState.OPEN,
+                    )
+                    hint = _PLACEMENT_HINTS.get(last.placement.state)
                 canvas = render_board(
                     width,
                     height,
@@ -338,6 +454,9 @@ def run_board(
                     gaze_point=last.screen_point if (show_gaze and last) else None,
                     speech_ok=speech_ok,
                     flash=flash if now < flash_until else None,
+                    eyes=eyes,
+                    hint=hint,
+                    aligned=aligned if session.gaze_enabled else None,
                 )
                 cv2.imshow(_WINDOW_NAME, canvas)
     finally:
@@ -362,6 +481,7 @@ def run_board(
             "eye_mode_at_end": eye_mode.value,
             "calibrated_eye_modes": sorted(mode.value for mode in models.models),
             "calibration_errors": models.errors,
+            "session_alignment_enabled": align,
             "speech": speech.metadata,
         },
         "measurement": {
@@ -377,6 +497,11 @@ def run_board(
                 "p95": _percentile(latencies, 95),
             },
             "speech_failures": speech_failures,
+            "session_alignment": {
+                "completed": alignments_completed,
+                "active_at_end": aligned,
+                "training_error_median_normalized": alignment_error,
+            },
             "session": session.stats.as_dict(),
         },
         "privacy": {
@@ -424,6 +549,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--confirm", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--fullscreen", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument(
+        "--align",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Quick 4-point session alignment before the board (~10 s). Key A repeats it.",
+    )
     parser.add_argument(
         "--output", type=Path, default=Path("work/communication/board-session-latest.json")
     )
@@ -483,6 +614,7 @@ def main(argv: list[str] | None = None) -> int:
             smoothing_alpha=CalibrationConfig.load(args.calibration_config).live_smoothing_alpha,
             speech_settings=speech_settings,
             fullscreen=args.fullscreen,
+            align=args.align,
         )
     except (FileNotFoundError, KeyError, RuntimeError, ValueError) as error:
         print(f"Communication board could not run: {error}", file=sys.stderr)

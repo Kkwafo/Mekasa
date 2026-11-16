@@ -45,3 +45,15 @@ def test_euler_identity_is_zero() -> None:
 def test_degenerate_transform_is_rejected() -> None:
     with pytest.raises(ValueError, match="Degenerate"):
         euler_from_transform(np.zeros((4, 4)))
+
+
+def test_canthal_vertical_offset_is_signed_and_scale_invariant() -> None:
+    from mekasa_gaze.tracking.geometry import canthal_vertical_offset
+
+    start, end = (0.0, 0.0, 0.0), (1.0, 0.0, 0.0)
+    assert canthal_vertical_offset([(0.5, 0.1, 0.0)], start, end) == pytest.approx(0.1)
+    assert canthal_vertical_offset([(0.5, -0.1, 0.0)], start, end) == pytest.approx(-0.1)
+    scaled = canthal_vertical_offset([(1.0, 0.2, 0.0)], (0.0, 0.0, 0.0), (2.0, 0.0, 0.0))
+    assert scaled == pytest.approx(0.1)
+    with pytest.raises(ValueError):
+        canthal_vertical_offset([(0.5, 0.1, 0.0)], start, start)

@@ -101,6 +101,34 @@ def normalized_iris_position(
     return horizontal, vertical
 
 
+def canthal_vertical_offset(
+    iris_points: Sequence[Point3],
+    corner_start: Point3,
+    corner_end: Point3,
+) -> float:
+    """Signed vertical offset of the iris centre from the line joining both eye corners.
+
+    The eye corners (canthi) are anchored to the skull, unlike the eyelids, which follow
+    vertical gaze and partly cancel the lid-normalized vertical ratio. The offset is the 2D
+    cross product divided by the squared corner distance, so it is scale invariant; it is
+    positive when the iris is below the corner line in image coordinates (corners must be
+    ordered image-left to image-right, as in the landmarker topology).
+
+    Raises:
+        ValueError: If no iris point is given or the corner distance is zero.
+    """
+    if not iris_points:
+        raise ValueError("At least one iris point is required")
+    iris = np.mean(np.asarray(iris_points, dtype=np.float64)[:, :2], axis=0)
+    start = np.asarray(corner_start[:2], dtype=np.float64)
+    axis = np.asarray(corner_end[:2], dtype=np.float64) - start
+    norm_sq = float(np.dot(axis, axis))
+    if norm_sq <= 1e-12:
+        raise ValueError("Eye corner distance is zero")
+    offset = iris - start
+    return float((axis[0] * offset[1] - axis[1] * offset[0]) / norm_sq)
+
+
 def euler_from_transform(matrix: npt.ArrayLike) -> HeadPose:
     """Extract diagnostic pitch, roll, and yaw Euler angles from a 4x4 facial transform.
 

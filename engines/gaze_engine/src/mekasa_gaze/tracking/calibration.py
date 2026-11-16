@@ -41,6 +41,7 @@ class CalibrationModel:
     weights: npt.NDArray[np.float64]
     output_intercept: npt.NDArray[np.float64]
     targets: dict[TargetName, tuple[float, float]]
+    closed_ear_threshold: float | None = None
 
     @classmethod
     def from_artifact(cls, artifact: dict[str, Any]) -> CalibrationModel:
@@ -91,6 +92,8 @@ class CalibrationModel:
         }
         if set(targets) != set(TargetName):
             raise ValueError("Calibration model does not contain all required targets")
+        reanalysis = artifact.get("eye_state_reanalysis") or {}
+        threshold = reanalysis.get("reanalysis_ear_threshold")
         return cls(
             feature_names,
             feature_mean,
@@ -98,6 +101,7 @@ class CalibrationModel:
             weights,
             output_intercept,
             targets,
+            None if threshold is None else float(threshold),
         )
 
     def predict_observation(

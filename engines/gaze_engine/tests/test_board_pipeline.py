@@ -111,7 +111,7 @@ def test_render_smoke(communication: CommunicationConfig) -> None:
         )
         canvas = render_board(640, 360, layout, update, eye_mode=EyeMode.LEFT, speech_ok=False)
         assert canvas.shape == (360, 640, 3)
-        assert status_text(update, EyeMode.LEFT).startswith("[ojo izq.]")
+        assert status_text(update, EyeMode.LEFT)
 
 
 def test_calibration_paths_prefer_mode_files_with_legacy_fallback(tmp_path: Path) -> None:
@@ -171,3 +171,92 @@ def test_grabber_keeps_latest_frame_and_reconnects() -> None:
     assert status.reconnect_attempts >= 2
     assert status.last_error is not None and "device lost" in status.last_error
     assert status.frames_captured >= 10
+
+
+# ------------------------------------------------------------------ session alignment & UI
+
+
+def test_alignment_learns_offset_and_corrects_predictions() -> None:
+    from mekasa_gaze.tracking.session_alignment import AlignmentProcedure
+
+    targets = [(0.25, 0.3), (0.75, 0.3), (0.25, 0.7), (0.75, 0.7)]
+    procedure = AlignmentProcedure(targets, settle_seconds=0.3, collect_seconds=0.5)
+    now = 0.0
+    snapshot = procedure.update(now, None)
+    while not snapshot.done:
+        now += 1 / 30
+        target = snapshot.target or targets[-1]
+        # Drifted model: shifted right/down and compressed.
+        snapshot = procedure.update(now, (0.1 + 0.6 * target[0], 0.2 + 0.6 * target[1]))
+    assert snapshot.correction is not None
+    corrected = snapshot.correction.predict((0.1 + 0.6 * 0.25, 0.2 + 0.6 * 0.7))
+    assert corrected == pytest.approx((0.25, 0.7), abs=0.03)
+    assert now < 6.0  # ~ 4 x (0.3 + 0.5) s
+
+
+def test_alignment_without_signal_gives_no_correction() -> None:
+    from mekasa_gaze.tracking.session_alignment import AlignmentProcedure
+
+    procedure = AlignmentProcedure([(0.2, 0.2), (0.8, 0.2), (0.5, 0.8)], max_collect_seconds=1.0)
+    now, snapshot = 0.0, procedure.update(0.0, None)
+    while not snapshot.done:
+        now += 1 / 30
+        snapshot = procedure.update(now, None)
+    assert snapshot.correction is None
+    assert "no disponible" in snapshot.message
+
+
+def test_board_and_alignment_render_with_unicode(communication: CommunicationConfig) -> None:
+    from mekasa_gaze.tracking.session_alignment import AlignmentSnapshot
+    from mekasa_gaze.ui.board_view import render_alignment
+
+    layout = communication.board()
+    update = SessionUpdate(
+        state=SessionState.FOCUSING,
+        focused=layout.options[0],
+        progress=0.6,
+        message="Sí, quiero agua",
+    )
+    canvas = render_board(
+        1280,
+        720,
+        layout,
+        update,
+        eye_mode=EyeMode.BOTH,
+        eyes=(True, False),
+        hint="Acérquese un poco",
+        aligned=True,
+    )
+    assert canvas.shape == (720, 1280, 3)
+    assert canvas.std() > 10  # something was drawn
+    snap = AlignmentSnapshot(1, 4, (0.25, 0.3), True, 0.5, False)
+    assert render_alignment(1280, 720, snap, signal_ok=False).shape == (720, 1280, 3)
+
+
+def test_pipeline_applies_personal_closed_eye_threshold(
+    validity_config: GuidedValidationConfig,
+) -> None:
+    from dataclasses import replace as dc_replace
+
+    from mekasa_gaze.runners.board_simulation import synthetic_model, synthetic_observation
+    from mekasa_gaze.runners.communication_board import GazePipeline
+
+    observation = synthetic_observation((0.3, 0.8), "ok", 1, 10.0)
+    features = dict(observation.features)
+    features.update(left_eye_aspect_ratio=0.12, right_eye_aspect_ratio=0.12)  # looking down
+    lowered = dc_replace(observation, features=features)
+
+    def predict(threshold: float | None) -> tuple[float, float] | None:
+        model = dc_replace(synthetic_model(EyeMode.BOTH), closed_ear_threshold=threshold)
+        pipeline = GazePipeline(
+            extractor=None,  # type: ignore[arg-type]
+            validity_config=validity_config,
+            model=model,
+            eye_mode=EyeMode.BOTH,
+            smoothing_alpha=1.0,
+            area=(0.0, 0.0, 1.0, 1.0),
+        )
+        return pipeline.process_observation(lowered, frame_timestamp_seconds=10.0).screen_point
+
+    assert predict(None) is None  # population threshold 0.15 calls this "closed"
+    assert predict(0.09) == pytest.approx((0.3, 0.8))

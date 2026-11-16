@@ -54,6 +54,19 @@ Hallazgos:
 3. **La señal vertical del ojo derecho casi no varía** (iris_y 0,37 arriba contra 0,355 abajo); la del izquierdo sí. Hipótesis: los pares de párpado usados para normalizar no son simétricos entre ojos (`_LEFT_EYE` usa 387/373 y `_RIGHT_EYE` usa 158/153; los espejos serían 385/380 o 160/144). Hay que verificarlo antes de confiar en el modo RIGHT.
 4. **La deriva de postura entre bloques** (pitch de 7° a 11°) degrada la precisión fina. La corrección de sesión todavía no se aplica en el tablero.
 
+## Cambios tras la sesión del 2026-11-16 (precisión, duración, UI)
+
+| Cambio | Motivo | Estado |
+| --- | --- | --- |
+| EAR de ambos ojos como dato de entrada de la calibración | En el bloque apartado: RIGHT 2×2 68 → 97 %, LEFT 51 → 76 %, BOTH 9 puntos 40 → 48 % | elegido sobre el mismo bloque; confirmar en otra sesión |
+| `*_iris_v`: posición vertical del iris respecto de la línea entre comisuras | El párpado sigue a la mirada y aplana `iris_y` (ojo derecho casi plano) | hipótesis sin medir; requiere nueva validación guiada |
+| Umbral personal de ojo cerrado guardado en la calibración y aplicado por el tablero | La mirada hacia abajo contaba como ojo cerrado | implementado y testeado |
+| Ajuste rápido de 4 puntos al abrir el tablero (corrección afín de sesión) | La corrección de sesión llevó 4 regiones de 58 % a 87,5 % en septiembre; el tablero no la tenía | implementado, verificado en replay; falta medir con persona |
+| Tolerancia de 0,2 s a caídas de señal ocular (congela el progreso, no avanza ni emite) | ~15 % de caídas sueltas hacían inalcanzable la fila inferior | implementado; las pérdidas de cámara, imagen y rostro siguen cancelando |
+| Protocolo rápido `config/experiment-001-quick.toml` | Pedido de pruebas más cortas: ~1,7 min en lugar de ~3,6 min de medición | listo, sin probar con persona |
+| UI: texto con acentos (Pillow y Segoe UI), indicador por ojo, aviso de distancia, pantalla de ajuste | SÍ se veía como SI; faltaba saber por qué no seleccionaba | verificado con capturas renderizadas |
+| `scripts/mekasa.ps1` | Levantar y probar con un comando | `simular` y `tests` ejecutados |
+
 ## Resultados por modo con baseline y modelo adaptado
 
 Baseline Ridge por modo: ver la sesión del 2026-11-16 arriba. **No hay modelo adaptado todavía** (hito 3). El resultado anterior es del 2026-09-21, en modo binocular y con distancia mayor:

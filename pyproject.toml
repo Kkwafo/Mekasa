@@ -22,6 +22,7 @@ mekasa-live-evaluation = "mekasa_gaze.runners.live_evaluation:main"
 mekasa-region-evaluation = "mekasa_gaze.runners.region_evaluation:main"
 mekasa-controlled-region-validation = "mekasa_gaze.runners.controlled_region_validation:main"
 mekasa-probe-cameras = "mekasa_gaze.tracking.probe:main"
+mekasa-board = "mekasa_gaze.runners.communication_board:main"
 
 [dependency-groups]
 dev = [

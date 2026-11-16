@@ -1,0 +1,47 @@
+# Mekasa communication board. Engineering hypotheses only, not clinical thresholds.
+# Compare alternatives with guided tests before fixing values for a person.
+
+[communication]
+# 900 ms is the initial reversible hypothesis; 450 ms and 1200 ms are the comparison
+# profiles (Majaranta et al. studied 450/900 ms in eye typing, a different task).
+dwell_seconds = 0.9
+cooldown_seconds = 1.0
+# Normalized expansion of the focused card while dwelling. Cards are separated by a gap
+# larger than twice this margin, so focus can never jump to a neighbour through jitter.
+hysteresis_margin = 0.03
+# Stable valid signal required after any loss, pause, mode change or start-up.
+recovery_seconds = 0.5
+# Frames older than this never drive selection.
+max_frame_age_seconds = 0.25
+# Optional second dwell on the same option (leave, return, dwell) before speaking.
+confirmation_required = false
+confirmation_window_seconds = 4.0
+# BOTH, LEFT or RIGHT (anatomical side of the person).
+eye_mode = "BOTH"
+# quadrant, binary-horizontal or binary-vertical.
+layout = "quadrant"
+high_contrast = true
+
+[speech]
+enabled = true
+# If no local voice exists, the board still works and the confirmed message stays on screen.
+required = false
+language = "es-ES"
+rate = 0
+volume = 100
+
+[phrases.YES]
+label = "SÍ"
+phrase = "Sí"
+
+[phrases.NO]
+label = "NO"
+phrase = "No"
+
+[phrases.WATER]
+label = "AGUA"
+phrase = "Quiero agua"
+
+[phrases.HELP]
+label = "AYUDA"
+phrase = "Necesito ayuda"

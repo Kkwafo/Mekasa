@@ -11,7 +11,7 @@ dependencies = [
   # MediaPipe depends on the contrib distribution. Do not install both OpenCV
   # wheel families because they expose the same top-level cv2 package.
   "opencv-contrib-python>=5.0,<6",
-  "pillow>=12,<13",
+  "pillow>=12,<14",
   "psutil>=7.2,<8",
 ]
 

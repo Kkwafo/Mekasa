@@ -85,7 +85,7 @@ from mekasa_gaze.tracking.session_calibration import (
     calibration_steps,
     estimated_seconds,
 )
-from mekasa_gaze.tracking.smoothing import RobustGazeSmoother, lid_in_transition
+from mekasa_gaze.tracking.smoothing import LidTransitionGate, RobustGazeSmoother, min_aperture
 from mekasa_gaze.tracking.validity import ValidityAssessment, assess_gaze_validity
 from mekasa_gaze.tracking.wink_calibration import (
     REQUESTED_WINKS,
@@ -195,6 +195,7 @@ class GazePipeline:
         self._model = model
         self._eye_mode = eye_mode
         self._smoother = RobustGazeSmoother(alpha=smoothing_alpha)
+        self._lid_gate = LidTransitionGate()
         self._band = face_width_band or (
             validity_config.min_face_width,
             validity_config.max_face_width,
@@ -230,6 +231,7 @@ class GazePipeline:
         self._validity_config = _personal_validity(self._base_validity_config, model)
         self._correction = None
         self._smoother.reset()
+        self._lid_gate.reset()
         self.monitor.rebase(_reference_of(model))
 
     # Backwards-compatible name used by older callers and tests.
@@ -283,10 +285,9 @@ class GazePipeline:
                 raw = None
         if raw is not None and self._distance_compensation:
             raw = compensate_distance(raw, status.distance_scale, self._camera)
-        reliable = self._model is None or not lid_in_transition(
-            dict(observation.features),
-            _EYES_OF_MODE[self._eye_mode],
-            self._validity_config.eye_closed_ear_threshold,
+        reliable = not self._lid_gate.in_transition(
+            frame_timestamp_seconds,
+            min_aperture(dict(observation.features), _EYES_OF_MODE[self._eye_mode]),
         )
         smoothed, held = self._smoother.update(frame_timestamp_seconds, raw, reliable=reliable)
         screen = smoothed
@@ -414,6 +415,18 @@ def calibration_paths(directory: Path) -> dict[EyeMode, Path]:
     if not paths[EyeMode.BOTH].exists() and legacy.exists():
         paths[EyeMode.BOTH] = legacy
     return paths
+
+
+def profile_name(value: str) -> str:
+    """A short label for the person (not their identity): letters, digits, - and _."""
+    cleaned = "".join(ch for ch in value.strip() if ch.isalnum() or ch in "-_")[:32]
+    if not cleaned:
+        raise ValueError("profile name needs letters or digits")
+    return cleaned
+
+
+def history_stamp() -> str:
+    return datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")  # microseconds: never collide
 
 
 def session_model_path(directory: Path, mode: EyeMode) -> Path:
@@ -687,6 +700,7 @@ def run_board(
     align: bool = True,
     calibration_dir: Path | None = None,
     test_repeats: int = 0,
+    profile: str | None = None,
 ) -> dict[str, Any]:
     """Open the camera and run calibration, optional test and the board until the user quits."""
     # Imported lazily so replay/simulation and tests do not need MediaPipe or a camera.
@@ -825,6 +839,7 @@ def run_board(
             summary_notice: str | None = None
             test: InstructedTest | None = None
             wink_step: WinkCalibration | None = None
+            calibration_stamp = history_stamp()
             steady_point: tuple[float, float] | None = None
             wink_eye: str | None = None
             grid_ears: dict[str, list[float]] = {"left": [], "right": []}
@@ -990,6 +1005,7 @@ def run_board(
                     )
                     snapshot = calibration.update(now, usable)
                     if snapshot.done:
+                        calibration_stamp = history_stamp()
                         fit_results = {
                             mode: fit_personal_model(calibration.samples, mode, split)
                             for mode in EyeMode
@@ -1000,6 +1016,12 @@ def run_board(
                                 if calibration_dir is not None:
                                     save_personal_model(
                                         result.model, session_model_path(calibration_dir, mode)
+                                    )
+                                    save_personal_model(  # history: never overwritten
+                                        result.model,
+                                        session_model_path(
+                                            calibration_dir / "history" / calibration_stamp, mode
+                                        ),
                                     )
                         stats["calibrations"] += 1
                         chosen, summary_notice = choose_eye_mode(eye_mode, fit_results)
@@ -1028,12 +1050,25 @@ def run_board(
                         summary_speech = (
                             "Calibración lista." if good else "Calibración con poca precisión."
                         )
+                        # Grid apertures with both eyes open (blink frames would drag the
+                        # "lowest normal aperture" down and the wink thresholds with it).
+                        open_limit = (
+                            active.model.closed_ear_threshold
+                            if active is not None and active.model is not None
+                            else 0.06
+                        )
+                        both_open = [
+                            sample
+                            for sample in calibration.samples
+                            if sample.grid
+                            and min(
+                                sample.features.get("left_eye_aspect_ratio", 0.0),
+                                sample.features.get("right_eye_aspect_ratio", 0.0),
+                            )
+                            >= open_limit
+                        ]
                         grid_ears = {
-                            eye: [
-                                float(sample.features[f"{eye}_eye_aspect_ratio"])
-                                for sample in calibration.samples
-                                if sample.grid and f"{eye}_eye_aspect_ratio" in sample.features
-                            ]
+                            eye: [float(s.features[f"{eye}_eye_aspect_ratio"]) for s in both_open]
                             for eye in ("left", "right")
                         }
                         calibration = None
@@ -1073,6 +1108,10 @@ def run_board(
                         wink_profile = fit_wink_profile(wink_step.records, grid_ears)
                         if calibration_dir is not None:
                             save_wink_profile(wink_profile, session_wink_path(calibration_dir))
+                            save_wink_profile(
+                                wink_profile,
+                                session_wink_path(calibration_dir / "history" / calibration_stamp),
+                            )
                         install(eye_mode, models.get(eye_mode))  # applies the wink profile
                         summary_lines.extend(
                             wink_summary_lines(wink_profile, communication.wink_select_count)
@@ -1464,6 +1503,7 @@ def run_board(
         else None,
         "configuration": {
             **{k: v for k, v in asdict(communication).items() if k != "phrases"},
+            "profile": profile,
             "eye_mode_at_start": communication.eye_mode.value,
             "eye_mode_at_end": eye_mode.value,
             "calibrated_eye_modes": sorted(mode.value for mode in models.models),
@@ -1550,6 +1590,12 @@ def _parser() -> argparse.ArgumentParser:
         default=Path("work/calibration"),
         help="Session models are saved here as session-gaze-model-{both,left,right}.json; "
         "research calibrations (personal-gaze-model-*.json) are used as a fallback.",
+    )
+    parser.add_argument(
+        "--profile",
+        default=None,
+        help="Short label per person (e.g. 'papa', 'lentes'): keeps each person's calibrations "
+        "in work/calibration/profiles/<label> and tags the session report.",
     )
     parser.add_argument(
         "--face-model",
@@ -1648,30 +1694,38 @@ def main(argv: list[str] | None = None) -> int:
             return 0 if report["safety"]["passed"] else 1
         with args.config.open("rb") as handle:
             speech_settings = tomllib.load(handle).get("speech", {})
+        profile = profile_name(args.profile) if args.profile else None
+        calibration_dir = (
+            args.calibration_dir / "profiles" / profile if profile else args.calibration_dir
+        )
         report = run_board(
             communication=communication,
             guided_config=GuidedValidationConfig.load(args.guided_config),
-            calibrations=calibration_paths(args.calibration_dir),
+            calibrations=calibration_paths(calibration_dir),
             face_model_path=args.face_model,
             smoothing_alpha=CalibrationConfig.load(args.calibration_config).live_smoothing_alpha,
             speech_settings=speech_settings,
             fullscreen=args.fullscreen,
             align=args.align,
-            calibration_dir=args.calibration_dir,
+            calibration_dir=calibration_dir,
             test_repeats=args.test,
+            profile=profile,
         )
     except (FileNotFoundError, KeyError, RuntimeError, ValueError) as error:
         print(f"Communication board could not run: {error}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
         return 130
+    serialized = json.dumps(report, indent=2, sort_keys=True, ensure_ascii=False, allow_nan=False)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(
-        json.dumps(report, indent=2, sort_keys=True, ensure_ascii=False, allow_nan=False) + "\n",
-        encoding="utf-8",
-    )
+    args.output.write_text(serialized + "\n", encoding="utf-8")
+    # History: every session is kept (earlier versions overwrote the only report).
+    suffix = f"-{profile}" if profile else ""
+    history = args.output.parent / "history" / f"board-session-{history_stamp()}{suffix}.json"
+    history.parent.mkdir(parents=True, exist_ok=True)
+    history.write_text(serialized + "\n", encoding="utf-8")
     summary = {
-        "report": str(args.output),
+        "report": str(history),
         "calibration": (report.get("calibration") or {}).get("fits"),
         "test": report.get("test"),
         "adaptation": report["measurement"]["adaptation"],

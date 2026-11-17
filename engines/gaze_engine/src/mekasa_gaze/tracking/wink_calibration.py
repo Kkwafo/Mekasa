@@ -213,7 +213,8 @@ def fit_wink_profile(
     separated: dict[str, bool] = {}
     for eye in ("left", "right"):
         grid = np.asarray([value for value in grid_ears.get(eye, []) if np.isfinite(value)])
-        open_low = float(np.percentile(grid, 5)) if grid.size else 0.2
+        # p10 of frames already filtered of blinks by the caller: the lowest *normal* aperture.
+        open_low = float(np.percentile(grid, 10)) if grid.size else 0.2
         fallback = _FALLBACK_FRACTION * (float(np.median(grid)) if grid.size else 0.25)
         asked = np.asarray(
             [

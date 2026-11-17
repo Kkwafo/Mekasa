@@ -253,11 +253,11 @@ def test_personal_thresholds_follow_downward_lids_and_blinks_are_guarded() -> No
 
     bottom = [sample(i / 30, 0.9, 0.12) for i in range(30)]
     thresholds = personal_thresholds(bottom, split_y=0.59)
-    assert thresholds.closed_ear_threshold == pytest.approx(0.072)
+    assert thresholds.closed_ear_threshold == pytest.approx(0.054)  # 0.45 x 0.12
     with_blink = [*bottom[:10], sample(10 / 30, 0.9, 0.04), *bottom[11:]]
     kept = usable_samples(with_blink, EyeMode.BOTH, thresholds)
     assert len(kept) < 30 - 1  # the blink frame and its neighbours are dropped
-    assert all(s.features["left_eye_aspect_ratio"] >= 0.072 for s in kept)
+    assert all(s.features["left_eye_aspect_ratio"] >= 0.054 for s in kept)
 
 
 # ------------------------------------------------------------------ session calibration

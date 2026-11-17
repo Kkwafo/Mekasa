@@ -1,4 +1,4 @@
-﻿<#
+﻿﻿<#
 .SYNOPSIS
     Mekasa: instalar, probar y usar el tablero desde PowerShell.
 
@@ -19,6 +19,7 @@
     .\scripts\mekasa.ps1 tablero -Parpadeo      # solo parpadeos (nunca por tiempo)
     .\scripts\mekasa.ps1 tablero -SoloTiempo    # solo mirada (0,9 s), sin elegir por parpadeo
     .\scripts\mekasa.ps1 tablero -Dwell 2       # mirar 2 s en lugar de 3
+    .\scripts\mekasa.ps1 tablero -Perfil lentes # calibraciones separadas por persona
     .\scripts\mekasa.ps1 tablero -SinCalibrar   # reutiliza la última calibración + ajuste de 4 puntos
     .\scripts\mekasa.ps1 tablero -Ojo LEFT -Dwell 1.2
     .\scripts\mekasa.ps1 simular       # prueba de seguridad sin cámara
@@ -43,6 +44,9 @@ param(
     # Género gramatical de las frases ("Estoy cansado" / "Estoy cansada").
     [ValidateSet("M", "F")]
     [string]$Genero = "",
+
+    # Etiqueta corta por persona: cada una conserva sus calibraciones y sus reportes.
+    [string]$Perfil = "",
 
     [switch]$Simple,
     # Solo parpadeos (nunca por tiempo) / solo mirada por tiempo. Sin ninguno: los dos.
@@ -81,6 +85,7 @@ function Get-BoardArguments {
     if ($Confirmar) { $arguments += "--confirm" }
     if ($Genero) { $arguments += @("--gender", $Genero.ToLower()) }
     if ($Simple) { $arguments += @("--interface", "simple") }
+    if ($Perfil) { $arguments += @("--profile", $Perfil) }
     if ($Parpadeo) { $arguments += @("--selection", "blink") }
     elseif ($SoloTiempo) { $arguments += @("--selection", "dwell") }
     if ($SinCalibrar) { $arguments += "--no-calibrate" }

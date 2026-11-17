@@ -413,11 +413,13 @@ class PersonalThresholds:
 
 
 def personal_thresholds(samples: Sequence[CalibrationSample], split_y: float) -> PersonalThresholds:
-    """Closed = below 60 % of the aperture seen while looking at the lowest row.
+    """Closed = below 45 % of the median aperture seen while looking at the lowest row.
 
     Eyelids follow downward gaze (2026-11-16: EAR 0.26 at the top row, 0.12 at the bottom), so
-    a population threshold of 0.15 calls downward fixations "closed". Blinks in the same data
-    dipped to 0.03-0.08. Limits are clamped to plausible ranges.
+    a population threshold of 0.15 calls downward fixations "closed". The first rule (60 %)
+    still called 11-13 % of bottom-row frames "closed" when the gaze went 30 % lower than during
+    calibration (raised chair, 2026-11-17); 45 % lowers that to 1-2 % while still catching 94 %
+    of real blinks in session B (blink minima median 0.024). Clamped to plausible ranges.
     """
     bottom = [sample for sample in samples if sample.target[1] > split_y + 0.02]
     ears = [
@@ -436,7 +438,7 @@ def personal_thresholds(samples: Sequence[CalibrationSample], split_y: float) ->
         for sample in bottom
     ]
     spans = [value for value in spans if isfinite(value)]
-    ear = float(np.clip(0.6 * np.median(ears), 0.06, 0.18)) if ears else 0.12
+    ear = float(np.clip(0.45 * np.median(ears), 0.05, 0.16)) if ears else 0.1
     span = float(np.clip(0.5 * np.percentile(spans, 10), 0.003, 0.008)) if spans else 0.006
     return PersonalThresholds(ear, span)
 

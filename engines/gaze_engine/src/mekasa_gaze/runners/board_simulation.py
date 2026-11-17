@@ -237,9 +237,15 @@ def default_script(mode: EyeMode) -> list[Segment]:
 def run_default_simulation(
     communication: CommunicationConfig, validity_config: GuidedValidationConfig
 ) -> dict[str, Any]:
-    """Run the default script for every eye mode and aggregate the verdict."""
+    """Run the default script for every eye mode and aggregate the verdict.
+
+    The script is timed for the 0.9 s dwell path, so it always runs in ``dwell`` mode: the
+    safety gates it checks are shared by every selection mode. Blink and combined selection
+    are covered by tests/test_blinks.py and tests/test_board_end_to_end.py.
+    """
     from dataclasses import replace
 
+    communication = replace(communication, selection_mode="dwell", dwell_seconds=0.9)
     reports = []
     for mode in EyeMode:
         config = replace(communication, eye_mode=mode, confirmation_required=False)

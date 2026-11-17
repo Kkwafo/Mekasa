@@ -36,7 +36,10 @@ def validity_config() -> GuidedValidationConfig:
 
 @pytest.fixture(scope="module")
 def communication() -> CommunicationConfig:
-    return CommunicationConfig.load(ROOT / "config" / "communication.toml")
+    # The scripted replay is timed for the 0.9 s dwell path.
+    return replace(
+        CommunicationConfig.load(ROOT / "config" / "communication.toml"), selection_mode="dwell"
+    )
 
 
 @pytest.mark.parametrize("mode", list(EyeMode))

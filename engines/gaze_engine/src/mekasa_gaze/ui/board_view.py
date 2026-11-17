@@ -160,6 +160,8 @@ def status_text(
     *,
     blink_mode: bool = False,
     blink_toggle: bool = False,
+    blink_select_count: int = 0,
+    blink_toggle_count: int = 4,
 ) -> str:
     """Short Spanish status line for the person and their support.
 
@@ -171,9 +173,9 @@ def status_text(
         return "Sin calibración para este modo · use las teclas 1 a 4"
     if state is SessionState.PAUSED:
         if blink_mode:
-            return "En espera · parpadee 4 veces para empezar a elegir"
+            return f"En espera · parpadee {blink_toggle_count} veces para empezar a elegir"
         if blink_toggle:
-            return "En pausa · 4 parpadeos o ESPACIO para continuar"
+            return f"En pausa · {blink_toggle_count} parpadeos o ESPACIO para continuar"
         return "En pausa · ESPACIO para continuar"
     if state is SessionState.SIGNAL_LOST:
         reason = update.abstain_reason or AbstainReason.TRACKING
@@ -184,8 +186,12 @@ def status_text(
         return "Recuperando señal…"
     if state is SessionState.FOCUSING and update.focused is not None:
         label = (labels or {}).get(update.focused.key, update.focused.label)
-        if blink_mode and update.armed is not None and update.armed.key == update.focused.key:
-            return f"Parpadee 2 veces para elegir {label.rstrip(' \u203a')}"
+        name = label.rstrip(" \u203a")
+        armed = update.armed is not None and update.armed.key == update.focused.key
+        if blink_select_count and armed and blink_mode:
+            return f"Parpadee {blink_select_count} veces para elegir {name}"
+        if blink_select_count and armed:
+            return f"Mirando {name}… o parpadee {blink_select_count} veces"
         return f"Mirando {label.rstrip(' \u203a')}…"
     if state is SessionState.AWAITING_CONFIRMATION and update.pending is not None:
         label = (labels or {}).get(update.pending.key, update.pending.label)
@@ -193,11 +199,15 @@ def status_text(
     if state is SessionState.COOLDOWN:
         return "Confirmado"
     if state is SessionState.AWAITING_EXIT:
+        if blink_select_count and update.armed is not None:
+            label = (labels or {}).get(update.armed.key, update.armed.label)
+            name = label.rstrip(" \u203a")
+            return f"Parpadee {blink_select_count} veces para elegir {name} o aparte la mirada"
         return "Confirmado · aparte la mirada para elegir otra vez"
     if notice:
         return notice
     if location and blink_mode:
-        return f"{location} · mire una opción y parpadee 2 veces"
+        return f"{location} · mire una opción y parpadee {blink_select_count} veces"
     if location:
         return f"{location} · mire una opción"
     return f"Listo · {_MODE_TEXT[eye_mode]}: mire una opción"
@@ -224,6 +234,8 @@ def render_board(
     blink_mode: bool = False,
     blink_toggle: bool = False,
     blink_count: int = 0,
+    blink_select_count: int = 0,
+    blink_toggle_count: int = 4,
 ) -> npt.NDArray[np.uint8]:
     """Render one frame of the board.
 
@@ -247,6 +259,8 @@ def render_board(
         blink_mode: Options are chosen by two blinks (changes texts and the ready hint).
         blink_toggle: Four blinks start/stop reading (mentioned in the paused text).
         blink_count: Blinks of a sequence in progress, shown as feedback.
+        blink_select_count: Blinks that choose the armed option (0 = blink selection off).
+        blink_toggle_count: Blinks that start/stop reading.
     """
     labels = (
         {option.key: cell[0] for option, cell in zip(layout.options, cells, strict=False)}
@@ -279,6 +293,8 @@ def render_board(
             location,
             blink_mode=blink_mode,
             blink_toggle=blink_toggle,
+            blink_select_count=blink_select_count,
+            blink_toggle_count=blink_toggle_count,
         ),
         (margin_px, 0, width - indicators_w, status_h),
         palette.focus
@@ -297,9 +313,10 @@ def render_board(
             canvas, (margin_px, status_h - 6), (margin_px + bar_w, status_h - 2), palette.good, -1
         )
 
+    armed_hint = f"parpadee {blink_select_count} veces" if blink_select_count else ""
     for index, option in enumerate(layout.options):
         label, kind = cells[index] if cells and index < len(cells) else (option.label, "")
-        _draw_option(canvas, option, update, area, palette, flash, label, kind)
+        _draw_option(canvas, option, update, area, palette, flash, label, kind, armed_hint)
 
     message_top = status_h
     message_bottom = status_h + int(height * MESSAGE_FRACTION)
@@ -545,6 +562,7 @@ def _draw_option(
     flash: BoardOption | None,
     label: str,
     kind: str = "",
+    armed_hint: str = "",
 ) -> None:
     height, width = canvas.shape[:2]
     left, top = board_to_screen((option.bounds[0], option.bounds[1]), area)
@@ -552,7 +570,7 @@ def _draw_option(
     box = (int(left * width), int(top * height), int(right * width), int(bottom * height))
     focused = update.focused is not None and update.focused.key == option.key
     pending = update.pending is not None and update.pending.key == option.key
-    armed = update.armed is not None and update.armed.key == option.key
+    armed = bool(armed_hint) and update.armed is not None and update.armed.key == option.key
     confirmed = (update.confirmed is not None and update.confirmed.key == option.key) or (
         flash is not None and flash.key == option.key
     )
@@ -579,7 +597,7 @@ def _draw_option(
         box[3] - border_width,
     )
     _filled_rounded_rectangle(canvas, (inner[0], inner[1]), (inner[2], inner[3]), fill, 22)
-    if focused and update.progress > 0.0 and not confirmed and not armed:
+    if focused and update.progress > 0.0 and not confirmed:
         fill_height = int((inner[3] - inner[1]) * min(1.0, update.progress))
         _filled_rounded_rectangle(
             canvas,
@@ -611,10 +629,10 @@ def _draw_option(
     if armed and not confirmed:
         draw_text(
             canvas,
-            "parpadee 2 veces",
+            armed_hint,
             (inner[0], inner[3] - (inner[3] - inner[1]) // 5, inner[2], inner[3]),
-            palette.focus,
-            max_size=28,
+            palette.card_text,
+            max_size=30,
             bold=False,
         )
     if pending:

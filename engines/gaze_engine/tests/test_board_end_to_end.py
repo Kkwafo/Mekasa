@@ -163,7 +163,9 @@ def test_board_session_calibrates_tests_and_adapts(
     )
     area = board_view.board_area(640, 360)
     communication = replace(
-        CommunicationConfig.load(ROOT / "config" / "communication.toml"), interface="simple"
+        CommunicationConfig.load(ROOT / "config" / "communication.toml"),
+        interface="simple",
+        selection_mode="dwell",
     )
     gap = board_view.board_to_screen((0.5, 0.5), area)
 
@@ -259,7 +261,9 @@ def test_conversation_board_composes_and_speaks_a_full_message(
     )
     area = board_view.board_area(640, 360)
     gap = board_view.board_to_screen((0.5, 0.5), area)
-    communication = CommunicationConfig.load(ROOT / "config" / "communication.toml")
+    communication = replace(
+        CommunicationConfig.load(ROOT / "config" / "communication.toml"), selection_mode="dwell"
+    )
     assert communication.interface == "conversation"
     plan = ["HABLAR", "CÓMO ESTOY \u203a", "ME DUELE \u203a", "CABEZA", "MUCHO", "DECIR", "URGENTE"]
     state = {"step": 0, "cells": None, "away_until": 0.0}
@@ -312,7 +316,7 @@ def test_conversation_board_composes_and_speaks_a_full_message(
 def test_blink_mode_starts_selects_and_stops_with_blinks_only(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Standby -> 4 blinks start -> long stare selects nothing -> look + 2 blinks compose
+    """Standby -> 4 blinks start -> long stare selects nothing -> look + 3 blinks compose
     "Necesito agua." -> DECIR -> 4 blinks pause."""
     world = World()
     speech = FakeSpeech()
@@ -332,6 +336,8 @@ def test_blink_mode_starts_selects_and_stops_with_blinks_only(
     def choose(label: str, stare: float = 1.0) -> list[tuple[float, str | None, bool]]:
         return [
             (stare, label, False),
+            (0.2, label, True),
+            (0.3, label, False),
             (0.2, label, True),
             (0.3, label, False),
             (0.2, label, True),
@@ -390,9 +396,103 @@ def test_blink_mode_starts_selects_and_stops_with_blinks_only(
     # Staring at HABLAR for 5 s (well past the 0.9 s dwell) chose nothing.
     assert state["spoken_before_stare_end"] is not None
     assert not any("Necesito" in text for text in state["spoken_before_stare_end"])
-    assert "Necesito agua." in spoken, spoken
+    assert "Necesito agua." in spoken, (
+        spoken,
+        report["measurement"]["session"],
+        report["measurement"]["blinks"],
+        report["measurement"]["conversation"],
+    )
     assert spoken[-1] == "Pausa."
     blinks = report["measurement"]["blinks"]
     assert blinks["toggle_gestures"] == 2
     assert blinks["selections"] == 5
     assert report["measurement"]["session"]["confirmations_by_source"] == {"blink": 5}
+
+
+def test_combined_mode_dwell_or_blinks_and_blink_shortcuts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Default config (combined): HABLAR by a 3 s look, NECESITO by 3 blinks, COMER Y BEBER by
+    look, AGUA by blinks; 5 blinks say the message; 7 blinks raise the urgent call."""
+    world = World()
+    speech = FakeSpeech()
+    _install_fakes(monkeypatch, world, speech)
+    alarms: list[float] = []
+    monkeypatch.setattr(board, "play_alarm", lambda: alarms.append(world.t) or True)
+    guided = replace(
+        GuidedValidationConfig.load(ROOT / "config" / "experiment-001.toml"),
+        canvas_width=640,
+        canvas_height=360,
+    )
+    area = board_view.board_area(640, 360)
+    gap = board_view.board_to_screen((0.5, 0.5), area)
+    communication = CommunicationConfig.load(ROOT / "config" / "communication.toml")
+    assert communication.selection_mode == "combined"
+
+    def blinks(count: int, label: str | None = None) -> list[tuple[float, str | None, bool]]:
+        actions: list[tuple[float, str | None, bool]] = []
+        for index in range(count):
+            actions.append((0.2, label, True))
+            actions.append((0.3 if index < count - 1 else 1.5, label, False))
+        return actions
+
+    sep = "\u203a"
+    timeline = [
+        (1.0, None, False),
+        (3.8, "HABLAR", False),  # chosen by the 3 s look
+        (1.0, f"NECESITO {sep}", False),
+        *blinks(3, f"NECESITO {sep}"),  # chosen by 3 blinks
+        (3.8, f"COMER Y BEBER {sep}", False),
+        (1.0, "AGUA", False),
+        *blinks(3, "AGUA"),
+        (1.0, None, False),
+        *blinks(5),  # say it now
+        (1.0, None, False),
+        *blinks(7),  # urgent call
+        (1.0, None, False),
+    ]
+    ends = np.cumsum([duration for duration, _, _ in timeline])
+
+    def render_board_hook(*args: Any, **kwargs: Any) -> Any:
+        if world.board_started_at is None:
+            world.board_started_at = world.t
+        elapsed = world.t - world.board_started_at
+        index = int(np.searchsorted(ends, elapsed, side="right"))
+        if index >= len(timeline):
+            world.keys.append(27)
+            world.closed = False
+            return original(*args, **kwargs)
+        _, label, closed = timeline[index]
+        world.closed = closed
+        labels = [cell for cell, _ in kwargs["cells"]] if kwargs.get("cells") else []
+        if label is not None and label in labels:
+            world.gaze = _center(area, ("YES", "NO", "WATER", "HELP")[labels.index(label)])
+        else:
+            world.gaze = gap
+        return original(*args, **kwargs)
+
+    original = board.render_board
+    monkeypatch.setattr(board, "render_board", render_board_hook)
+    report = board.run_board(
+        communication=communication,
+        guided_config=guided,
+        calibrations=board.calibration_paths(tmp_path),
+        face_model_path=tmp_path / "unused.task",
+        smoothing_alpha=0.25,
+        speech_settings={},
+        fullscreen=False,
+        calibration_dir=tmp_path,
+    )
+    spoken = speech.spoken
+    assert "Necesito agua." in spoken, (
+        spoken,
+        report["measurement"]["session"],
+        report["measurement"]["blinks"],
+        report["measurement"]["conversation"],
+    )
+    assert spoken[-1] == "¡Necesito ayuda urgente! Vengan, por favor."
+    assert alarms
+    sources = report["measurement"]["session"]["confirmations_by_source"]
+    assert sources == {"blink": 2, "gaze": 2}, sources
+    blink_stats = report["measurement"]["blinks"]
+    assert blink_stats["speak_gestures"] == 1 and blink_stats["urgent_gestures"] == 1

@@ -148,10 +148,16 @@ class CommunicationConfig:
     vocabulary: str = "config/vocabulario.txt"
     gender: str = "m"
     urgent_alarm: bool = True
-    # How a looked-at option is chosen: "dwell" (look for dwell_seconds) or "blink"
-    # (look until it is ready, then blink twice). 4 blinks start/stop reading.
+    # How a looked-at option is chosen: "dwell" (look for dwell_seconds), "blink" (look
+    # until it is ready, then blink ``blink_select_count`` times) or "combined" (either:
+    # look for combined_dwell_seconds or blink).
     selection_mode: str = "dwell"
+    combined_dwell_seconds: float = 3.0
     blink_toggle: bool = True
+    blink_select_count: int = 3
+    blink_toggle_count: int = 4
+    blink_speak_count: int = 5
+    blink_urgent_count: int = 7
     blink_min_focus_seconds: float = 0.4
     blink_selection_window_seconds: float = 3.0
     blink_min_closed_seconds: float = 0.08
@@ -180,8 +186,15 @@ class CommunicationConfig:
             raise ValueError("interface must be 'conversation' or 'simple'")
         if self.gender not in ("m", "f"):
             raise ValueError("gender must be 'm' or 'f'")
-        if self.selection_mode not in ("dwell", "blink"):
-            raise ValueError("selection_mode must be 'dwell' or 'blink'")
+        if self.selection_mode not in ("dwell", "blink", "combined"):
+            raise ValueError("selection_mode must be 'dwell', 'blink' or 'combined'")
+        if not 0.5 <= self.combined_dwell_seconds <= 10.0:
+            raise ValueError("combined_dwell_seconds must be within [0.5, 10]")
+        counts = self.blink_counts
+        if len(set(counts.values())) != len(counts) or not all(
+            2 <= count <= 9 for count in counts.values()
+        ):
+            raise ValueError("blink gesture counts must be distinct and within [2, 9]")
         if not 0.1 <= self.blink_min_focus_seconds <= 3.0:
             raise ValueError("blink_min_focus_seconds must be within [0.1, 3]")
         if not 0.5 <= self.blink_selection_window_seconds <= 10.0:
@@ -190,6 +203,23 @@ class CommunicationConfig:
             raise ValueError("blink closure limits must satisfy 0 < min < max <= 2 s")
         if not 0.2 <= self.blink_max_gap_seconds <= 2.0:
             raise ValueError("blink_max_gap_seconds must be within [0.2, 2]")
+
+    @property
+    def effective_dwell_seconds(self) -> float:
+        """Dwell time that confirms a selection in the active mode."""
+        if self.selection_mode == "combined":
+            return self.combined_dwell_seconds
+        return self.dwell_seconds
+
+    @property
+    def blink_counts(self) -> dict[str, int]:
+        """Blink gesture -> number of blinks in a row."""
+        return {
+            "select": self.blink_select_count,
+            "toggle": self.blink_toggle_count,
+            "speak": self.blink_speak_count,
+            "urgent": self.blink_urgent_count,
+        }
 
     def board(self) -> BoardLayout:
         """Build the configured board layout."""
@@ -244,16 +274,30 @@ class CommunicationConfig:
             urgent_alarm=bool(section.get("urgent_alarm", defaults.urgent_alarm)),
             selection_mode=str(section.get("selection_mode", defaults.selection_mode)).lower(),
             blink_toggle=bool(section.get("blink_toggle", defaults.blink_toggle)),
-            **{
-                name: float(section.get(name, getattr(defaults, name)))
-                for name in (
-                    "blink_min_focus_seconds",
-                    "blink_selection_window_seconds",
-                    "blink_min_closed_seconds",
-                    "blink_max_closed_seconds",
-                    "blink_max_gap_seconds",
+            combined_dwell_seconds=float(
+                section.get("combined_dwell_seconds", defaults.combined_dwell_seconds)
+            ),
+            blink_select_count=int(section.get("blink_select_count", defaults.blink_select_count)),
+            blink_toggle_count=int(section.get("blink_toggle_count", defaults.blink_toggle_count)),
+            blink_speak_count=int(section.get("blink_speak_count", defaults.blink_speak_count)),
+            blink_urgent_count=int(section.get("blink_urgent_count", defaults.blink_urgent_count)),
+            blink_min_focus_seconds=float(
+                section.get("blink_min_focus_seconds", defaults.blink_min_focus_seconds)
+            ),
+            blink_selection_window_seconds=float(
+                section.get(
+                    "blink_selection_window_seconds", defaults.blink_selection_window_seconds
                 )
-            },
+            ),
+            blink_min_closed_seconds=float(
+                section.get("blink_min_closed_seconds", defaults.blink_min_closed_seconds)
+            ),
+            blink_max_closed_seconds=float(
+                section.get("blink_max_closed_seconds", defaults.blink_max_closed_seconds)
+            ),
+            blink_max_gap_seconds=float(
+                section.get("blink_max_gap_seconds", defaults.blink_max_gap_seconds)
+            ),
         )
         config.validate()
         return config

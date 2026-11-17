@@ -14,9 +14,10 @@ The default interface is the conversation board (tracking/conversation.py): SÍ 
 HABLAR / URGENTE at home, menus from config/vocabulario.txt to compose a full message, and
 DECIR to speak it. ``--interface simple`` keeps the original SÍ / NO / AGUA / AYUDA board.
 
-Selection: ``--selection dwell`` (default) chooses by looking for a time; ``--selection blink``
-arms the looked-at option and two deliberate blinks choose it (never by time). In both modes
-four blinks in a row start/stop reading (tracking/blinks.py).
+Selection: ``--selection dwell`` chooses by looking for a time; ``--selection blink`` arms the
+looked-at option and deliberate blinks choose it (never by time); ``--selection combined``
+(default in config/communication.toml) accepts either a 3 s look or the blinks. Blink gestures
+in every mode (defaults): 3 choose, 4 start/stop reading, 5 say the message, 7 urgent call.
 
 Keys: 1-4 select directly - ENTER confirm pending option - BACKSPACE back - H home -
 SPACE pause/resume - A re-align - K recalibrate - M cycle eye mode - G show/hide gaze point -
@@ -52,7 +53,7 @@ from mekasa_gaze.runners.live_evaluation import PredictionSmoother
 from mekasa_gaze.services.alarm import play_alarm
 from mekasa_gaze.services.runtime import environment, source_revision
 from mekasa_gaze.services.speech import create_speech_backend
-from mekasa_gaze.tracking.blinks import SELECT_BLINKS, TOGGLE_BLINKS, BlinkDetector
+from mekasa_gaze.tracking.blinks import BlinkDetector
 from mekasa_gaze.tracking.calibration import load_calibration_model
 from mekasa_gaze.tracking.communication import CommunicationSession, GazeInput, SessionUpdate
 from mekasa_gaze.tracking.conversation import Navigator
@@ -632,8 +633,17 @@ def run_board(
         min_closed_seconds=communication.blink_min_closed_seconds,
         max_closed_seconds=communication.blink_max_closed_seconds,
         max_gap_seconds=communication.blink_max_gap_seconds,
+        commands=tuple(communication.blink_counts.values()),
     )
-    blink_stats = {"select_gestures": 0, "toggle_gestures": 0, "selections": 0}
+    counts = communication.blink_counts
+    blink_stats = {
+        "select_gestures": 0,
+        "toggle_gestures": 0,
+        "speak_gestures": 0,
+        "urgent_gestures": 0,
+        "selections": 0,
+    }
+    transient: dict[str, Any] = {"text": None, "until": 0.0}
     speech = create_speech_backend(
         enabled=bool(speech_settings.get("enabled", True)),
         required=bool(speech_settings.get("required", False)),
@@ -783,6 +793,31 @@ def run_board(
                 key = cv2.waitKey(1 if frame is not None else 5) & 0xFF
                 if key in (27, ord("q")):
                     break
+
+                # Blink gestures are read in every phase; the urgent call acts at once,
+                # whatever the screen and even while paused or calibrating.
+                gesture = None
+                if fresh and last is not None:
+                    gesture = blinks.update(
+                        now,
+                        last.validity.left_eye_state,
+                        last.validity.right_eye_state,
+                        tracking_ok=last.tracking_ok,
+                    )
+                elif not connected:
+                    blinks.reset()
+                if gesture is not None and gesture.count == counts["urgent"]:
+                    blink_stats["urgent_gestures"] += 1
+                    if navigator is not None:
+                        urgent_text = navigator.urgent().speak
+                    else:
+                        urgent_text = session.layout.option("HELP").phrase
+                    if urgent_text:
+                        speech_ok = speak_safely(speech, urgent_text)
+                        speech_failures += 0 if speech_ok else 1
+                    if communication.urgent_alarm:
+                        play_alarm()
+                    gesture = None
 
                 # ------------------------------------------------------------ calibration
                 if phase is Phase.CALIBRATING and calibration is not None:
@@ -934,29 +969,37 @@ def run_board(
                     continue
 
                 # ------------------------------------------------------------ board / test
-                tick = gaze_input(last, now, connected)
+                tick = replace(
+                    gaze_input(last, now, connected),
+                    hold_dwell=blinks.count_in_progress > 0 or blinks.eyes_closed,
+                )
                 update: SessionUpdate = session.update(tick)
-                gesture = None
-                if fresh and last is not None:
-                    gesture = blinks.update(
-                        now,
-                        last.validity.left_eye_state,
-                        last.validity.right_eye_state,
-                        tracking_ok=last.tracking_ok,
-                    )
-                elif not connected:
-                    blinks.reset()
-                if gesture is not None and gesture.count == TOGGLE_BLINKS:
+                if gesture is not None and gesture.count == counts["toggle"]:
                     blink_stats["toggle_gestures"] += 1
                     if communication.blink_toggle and phase is Phase.BOARD:
                         session.toggle_pause()
                         speak_safely(speech, "Pausa." if session.paused else "Empiezo a leer.")
-                elif gesture is not None and gesture.count == SELECT_BLINKS:
+                elif gesture is not None and gesture.count == counts["select"]:
                     blink_stats["select_gestures"] += 1
                     blink_update = session.select_by_blink(now)
                     if blink_update is not None and update.confirmed is None:
                         blink_stats["selections"] += 1
                         update = blink_update
+                elif gesture is not None and gesture.count == counts["speak"]:
+                    blink_stats["speak_gestures"] += 1
+                    if phase is Phase.BOARD:
+                        to_say = (
+                            navigator.speak_draft().speak
+                            if navigator is not None
+                            else session.message
+                        )
+                        if to_say:
+                            speech_ok = speak_safely(speech, to_say)
+                            speech_failures += 0 if speech_ok else 1
+                            conversation_stats["messages_spoken"] += 1
+                        else:
+                            transient["text"] = "No hay mensaje armado para decir"
+                            transient["until"] = now + 2.5
                 if fresh and last is not None:
                     latencies.append((now - last.frame_timestamp_seconds) * 1000.0)
                     if update.focused is not None and last.raw_screen_point is not None:
@@ -1057,7 +1100,12 @@ def run_board(
                             point
                             for at, point, focused in focus_trace
                             if focused == update.confirmed.key
-                            and now - at <= communication.dwell_seconds + 0.3
+                            and now - at
+                            <= max(
+                                communication.effective_dwell_seconds,
+                                communication.blink_selection_window_seconds,
+                            )
+                            + 0.3
                         ]
                         if len(points) >= 5:
                             median = np.median(np.asarray(points), axis=0)
@@ -1074,7 +1122,7 @@ def run_board(
                             pipeline.set_correction(online.correction(now))
                     focus_trace.clear()
 
-                notice: str | None = None
+                notice: str | None = transient["text"] if now < transient["until"] else None
                 status = last.placement_status if last is not None else None
                 if status is not None and status.drift is not Drift.OK and session.gaze_enabled:
                     notice = DRIFT_HINTS[status.drift]
@@ -1132,6 +1180,8 @@ def run_board(
                     blink_mode=session.blink_mode,
                     blink_toggle=communication.blink_toggle,
                     blink_count=blinks.count_in_progress,
+                    blink_select_count=counts["select"] if session.blink_selection else 0,
+                    blink_toggle_count=counts["toggle"],
                 )
                 cv2.imshow(_WINDOW_NAME, canvas)
     finally:
@@ -1260,9 +1310,9 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--selection",
-        choices=("dwell", "blink"),
+        choices=("dwell", "blink", "combined"),
         default=None,
-        help="dwell: look for a time; blink: look, then blink twice (4 blinks start/stop)",
+        help="dwell: look for a time; blink: look, then blink; combined: either",
     )
     parser.add_argument("--fullscreen", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument(
@@ -1307,8 +1357,9 @@ def main(argv: list[str] | None = None) -> int:
         overrides: dict[str, Any] = {}
         if args.eye_mode is not None:
             overrides["eye_mode"] = args.eye_mode
-        if args.dwell is not None:
+        if args.dwell is not None:  # applies to the active mode (dwell or combined)
             overrides["dwell_seconds"] = args.dwell
+            overrides["combined_dwell_seconds"] = args.dwell
         if args.confirm is not None:
             overrides["confirmation_required"] = args.confirm
         if args.calibrate is not None:

@@ -49,7 +49,7 @@ def _counts(feed: Feed) -> list[int]:
 
 
 def test_two_and_four_blinks_are_commands_reported_after_the_sequence_ends() -> None:
-    feed = Feed(BlinkDetector())
+    feed = Feed(BlinkDetector(commands=(2, 4)))
     feed.run(1.0, OPEN)
     feed.blinks(2)
     feed.run(0.5, OPEN)
@@ -63,7 +63,7 @@ def test_two_and_four_blinks_are_commands_reported_after_the_sequence_ends() -> 
 
 
 def test_single_triple_and_long_closures_are_ignored() -> None:
-    feed = Feed(BlinkDetector())
+    feed = Feed(BlinkDetector(commands=(2, 4)))
     feed.run(1.0, OPEN)
     feed.blinks(1)  # spontaneous blink
     feed.run(1.5, OPEN)
@@ -80,7 +80,7 @@ def test_single_triple_and_long_closures_are_ignored() -> None:
 
 
 def test_noise_and_face_loss_do_not_count() -> None:
-    feed = Feed(BlinkDetector(min_closed_seconds=0.1))
+    feed = Feed(BlinkDetector(min_closed_seconds=0.1, commands=(2, 4)))
     feed.run(0.5, OPEN)
     feed.run(1 / FPS, CLOSED)  # one-frame dip: noise
     feed.run(0.3, OPEN)
@@ -92,7 +92,7 @@ def test_noise_and_face_loss_do_not_count() -> None:
 
 
 def test_single_eye_mode_uses_only_that_eye() -> None:
-    feed = Feed(BlinkDetector(eye_mode=EyeMode.LEFT))
+    feed = Feed(BlinkDetector(eye_mode=EyeMode.LEFT, commands=(2, 4)))
     feed.run(0.5, OPEN)
     for _ in range(2):
         feed.run(0.2, CLOSED, EyeState.INVALID)  # right eye unusable, left blinks
@@ -184,3 +184,63 @@ def test_dwell_mode_ignores_blink_selection() -> None:
     assert not session.paused
     clock.run(YES_POINT, 0.3)
     assert session.select_by_blink(clock.t) is None
+
+
+def test_default_commands_are_three_four_five_and_seven() -> None:
+    feed = Feed(BlinkDetector())
+    feed.run(0.5, OPEN)
+    for count in (2, 3, 4, 5, 6, 7, 8):
+        feed.blinks(count, closed=0.15, gap=0.25)
+        feed.run(1.2, OPEN)
+    assert _counts(feed) == [3, 4, 5, 7]
+
+
+# ---------------------------------------------------------------- combined mode
+
+
+def _combined() -> tuple[CommunicationSession, Clock]:
+    config = replace(CommunicationConfig(), selection_mode="combined")
+    session = CommunicationSession(config, calibration_mode=EyeMode.BOTH)
+    return session, Clock(session)
+
+
+def test_combined_mode_selects_after_three_seconds_or_by_blinking() -> None:
+    session, clock = _combined()
+    assert not session.paused and session.dwell_seconds == 3.0
+    updates = clock.run(YES_POINT, 3.0)  # 0.5 s recovery at start + 2.5 s looking
+    assert not any(update.confirmed for update in updates)
+    assert updates[-1].armed is not None  # blinking now would choose it
+    updates = clock.run(YES_POINT, 0.8)
+    confirmed = [update.confirmed for update in updates if update.confirmed]
+    assert [option.key for option in confirmed] == ["YES"]  # the 3 s look chose it
+    assert session.select_by_blink(clock.t) is None  # the dwell choice disarmed it
+    clock.run((0.75, 0.25), 1.5)  # leave YES (rearm-on-exit) by looking at NO
+    clock.run(YES_POINT, 1.0)
+    blink = session.select_by_blink(clock.t)
+    assert blink is not None and blink.confirmed_source == "blink"
+
+
+def test_dwell_freezes_while_a_blink_gesture_is_in_progress() -> None:
+    session, clock = _combined()
+    clock.run(YES_POINT, 2.0)
+    held: list[SessionUpdate] = []
+    for _ in range(round(3.0 * FPS)):  # 3 s of "blink gesture in progress"
+        clock.t += 1 / FPS
+        held.append(session.update(GazeInput(clock.t, clock.t, YES_POINT, True, OPEN, OPEN, True)))
+    assert not any(update.confirmed for update in held)
+    assert held[-1].progress < 1.0
+    rest = clock.run(YES_POINT, 1.8)  # 1.5 s before the freeze + 1.5 s after = 3 s
+    assert any(update.confirmed for update in rest)  # resumes where it was frozen
+
+
+def test_combined_after_a_dwell_choice_blinks_may_choose_the_same_cell_but_dwell_may_not() -> None:
+    session, clock = _combined()
+    updates = clock.run(YES_POINT, 3.8)
+    assert sum(1 for update in updates if update.confirmed) == 1
+    # Still looking at the same cell (the next menu puts a new option there).
+    updates = clock.run(YES_POINT, 6.0)
+    assert not any(update.confirmed for update in updates)  # no dwell cascade
+    assert updates[-1].state is SessionState.AWAITING_EXIT
+    assert updates[-1].armed is not None  # ...but deliberate blinks can choose it
+    blink = session.select_by_blink(clock.t)
+    assert blink is not None and blink.confirmed_source == "blink"

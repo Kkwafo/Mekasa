@@ -12,7 +12,10 @@ It is deterministic and clock-injected so every safety rule is testable without 
 
 Selection modes: ``dwell`` confirms after a fixed fixation time. ``blink`` never confirms by
 time: a stable fixation *arms* the option and :meth:`CommunicationSession.select_by_blink`
-(two deliberate blinks, see ``tracking/blinks.py``) confirms it. Blink mode starts on standby
+(deliberate blinks, see ``tracking/blinks.py``) confirms it. ``combined`` does both: a long
+fixation (``combined_dwell_seconds``) or blinks on the armed option. While a blink sequence is
+in progress the runner sets ``GazeInput.hold_dwell`` so the dwell cannot complete in the middle
+of another gesture. Blink mode starts on standby
 (paused) until the person starts reading (four blinks) or a caregiver presses SPACE. Hard
 losses (camera, stale frame, face) disarm; an eye-only loss does not, because the blink itself
 closes the eyes.
@@ -76,6 +79,7 @@ class GazeInput:
     tracking_ok: bool
     left_eye: EyeState
     right_eye: EyeState
+    hold_dwell: bool = False  # a blink gesture is in progress: freeze dwell progress
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,9 +159,12 @@ class CommunicationSession:
         self._eye_mode = config.eye_mode
         self._calibration_mode = calibration_mode
         self._blink_mode = config.selection_mode == "blink"
+        self._blink_selection = config.selection_mode in ("blink", "combined")
+        self._dwell = config.effective_dwell_seconds
         self._paused = self._blink_mode  # blink mode waits until the person starts reading
         self._armed: BoardOption | None = None
         self._armed_seen = float("-inf")
+        self._rearm_since: float | None = None
         self._signal_since: float | None = None
         self._was_lost = True
         self._focused: BoardOption | None = None
@@ -191,6 +198,16 @@ class CommunicationSession:
     def blink_mode(self) -> bool:
         """Whether options are chosen by blinking instead of dwell time."""
         return self._blink_mode
+
+    @property
+    def blink_selection(self) -> bool:
+        """Whether blinking can choose the armed option (blink and combined modes)."""
+        return self._blink_selection
+
+    @property
+    def dwell_seconds(self) -> float:
+        """Fixation time that confirms in this mode (unused in pure blink mode)."""
+        return self._dwell
 
     @property
     def gaze_enabled(self) -> bool:
@@ -245,7 +262,7 @@ class CommunicationSession:
         """
         option = self._armed
         if (
-            not self._blink_mode
+            not self._blink_selection
             or not self.gaze_enabled
             or self._paused
             or option is None
@@ -297,7 +314,7 @@ class CommunicationSession:
             self.stats.dropout_ticks_bridged += 1
             progress = 0.0
             if self._focus_since is not None:
-                progress = min(0.999, (now - self._focus_since) / self._config.dwell_seconds)
+                progress = min(0.999, (now - self._focus_since) / self._dwell)
             state = SessionState.FOCUSING if self._focused is not None else SessionState.READY
             if self._pending is not None:
                 state = SessionState.AWAITING_CONFIRMATION
@@ -313,7 +330,7 @@ class CommunicationSession:
             eye_only = reason in (AbstainReason.EYE_SIGNAL, AbstainReason.NO_PREDICTION)
             armed, armed_seen = self._armed, self._armed_seen
             self._flush()
-            if self._blink_mode and eye_only:  # the blink itself: stay armed
+            if self._blink_selection and eye_only:  # the blink itself: stay armed
                 self._armed, self._armed_seen = armed, armed_seen
             return self._snapshot(SessionState.SIGNAL_LOST, abstain_reason=reason)
         assert tick.prediction is not None
@@ -341,9 +358,17 @@ class CommunicationSession:
         margin = self._config.hysteresis_margin
         if self._rearm is not None:
             if self._rearm.contains(point, margin):
+                # Dwell must wait for an exit (no cascades through menus). Blinks are a
+                # deliberate act, so a steady look may still arm the option for them.
+                if self._blink_selection:
+                    if self._rearm_since is None:
+                        self._rearm_since = now
+                    if now - self._rearm_since >= self._config.blink_min_focus_seconds:
+                        self._armed, self._armed_seen = self._rearm, now
                 self._clear_focus()
                 return self._snapshot(SessionState.AWAITING_EXIT)
             self._rearm = None
+            self._rearm_since = None
 
         candidate = self._candidate(point)
         if self._blink_mode:
@@ -351,14 +376,24 @@ class CommunicationSession:
         idle_state = SessionState.AWAITING_CONFIRMATION if self._pending else SessionState.READY
         if candidate is None:
             self._cancel_focus()
+            self._armed = None
             return self._snapshot(idle_state)
         if candidate is not self._focused:
             self._cancel_focus()
             self._focused = candidate
             self._focus_since = now
         assert self._focus_since is not None
-        progress = min(1.0, (now - self._focus_since) / self._config.dwell_seconds)
-        if progress < 1.0:
+        if tick.hold_dwell and previous_tick is not None:
+            self._focus_since += max(0.0, now - previous_tick)  # freeze during a gesture
+        held = now - self._focus_since
+        if self._blink_selection:
+            if held >= self._config.blink_min_focus_seconds:
+                self._armed, self._armed_seen = candidate, now
+            elif self._armed is not None and self._armed is not candidate:
+                self._armed = None
+        progress = min(1.0, held / self._dwell)
+        if progress < 1.0 or tick.hold_dwell:
+            progress = min(progress, 0.999)
             state = idle_state if self._pending else SessionState.FOCUSING
             return self._snapshot(state, progress=progress)
 
@@ -430,6 +465,8 @@ class CommunicationSession:
 
     def _confirm(self, option: BoardOption, now: float, source: str) -> SessionUpdate:
         self._pending = None
+        self._armed = None
+        self._rearm_since = None
         self._rearm = option if source == "gaze" else None
         self._cooldown_until = now + self._config.cooldown_seconds
         self._message = option.phrase
@@ -455,6 +492,7 @@ class CommunicationSession:
             self.stats.pending_discarded += 1
         self._pending = None
         self._rearm = None
+        self._rearm_since = None
 
     def _flush(self) -> None:
         """Discard everything that could lead to an emission. Keeps the visible message."""

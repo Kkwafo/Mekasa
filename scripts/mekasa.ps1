@@ -14,7 +14,11 @@
     .\scripts\mekasa.ps1 tablero       # calibra (~35 s) y abre el tablero de conversación
     .\scripts\mekasa.ps1 tablero -Genero F      # frases en femenino ("Estoy cansada")
     .\scripts\mekasa.ps1 tablero -Simple        # tablero simple SÍ / NO / AGUA / AYUDA
-    .\scripts\mekasa.ps1 tablero -Parpadeo      # mirar + 2 parpadeos elige; 4 parpadeos empieza/para
+    #   Por defecto: mirar 3 s o 3 parpadeos eligen; 4 parpadeos empiezan/paran;
+    #   5 parpadeos dicen el mensaje; 7 parpadeos llaman a urgencias.
+    .\scripts\mekasa.ps1 tablero -Parpadeo      # solo parpadeos (nunca por tiempo)
+    .\scripts\mekasa.ps1 tablero -SoloTiempo    # solo mirada (0,9 s), sin elegir por parpadeo
+    .\scripts\mekasa.ps1 tablero -Dwell 2       # mirar 2 s en lugar de 3
     .\scripts\mekasa.ps1 tablero -SinCalibrar   # reutiliza la última calibración + ajuste de 4 puntos
     .\scripts\mekasa.ps1 tablero -Ojo LEFT -Dwell 1.2
     .\scripts\mekasa.ps1 simular       # prueba de seguridad sin cámara
@@ -29,7 +33,7 @@ param(
     [ValidateSet("BOTH", "LEFT", "RIGHT")]
     [string]$Ojo = "BOTH",
 
-    # Segundos de mirada fija para elegir (0 = valor de config/communication.toml, 0.9 s).
+    # Segundos de mirada fija para elegir (0 = valor de config/communication.toml: 3 s).
     [double]$Dwell = 0,
 
     # Veces que se pide cada opción en la prueba (2 = 8 consignas, ~1 min).
@@ -41,8 +45,9 @@ param(
     [string]$Genero = "",
 
     [switch]$Simple,
-    # Elegir parpadeando 2 veces (nunca por tiempo); 4 parpadeos empiezan o paran la lectura.
+    # Solo parpadeos (nunca por tiempo) / solo mirada por tiempo. Sin ninguno: los dos.
     [switch]$Parpadeo,
+    [switch]$SoloTiempo,
     [switch]$Confirmar,
     [switch]$SinCalibrar,
     [switch]$Ventana
@@ -77,12 +82,13 @@ function Get-BoardArguments {
     if ($Genero) { $arguments += @("--gender", $Genero.ToLower()) }
     if ($Simple) { $arguments += @("--interface", "simple") }
     if ($Parpadeo) { $arguments += @("--selection", "blink") }
+    elseif ($SoloTiempo) { $arguments += @("--selection", "dwell") }
     if ($SinCalibrar) { $arguments += "--no-calibrate" }
     if ($Ventana) { $arguments += "--no-fullscreen" }
     return $arguments
 }
 
-$keys = "Parpadeos: 4 seguidos empiezan/paran · con -Parpadeo, 2 seguidos eligen. Teclas: 1-4 elegir · RETROCESO volver · H inicio · ESPACIO pausa · A reajustar · K recalibrar · M cambiar ojo · G ver mirada · C borrar · ESC salir"
+$keys = "Parpadeos seguidos: 3 elegir · 4 empezar/parar · 5 decir · 7 urgencia. Teclas: 1-4 elegir · RETROCESO volver · H inicio · ESPACIO pausa · A reajustar · K recalibrar · M cambiar ojo · G ver mirada · C borrar · ESC salir"
 
 switch ($Accion) {
     "instalar" {

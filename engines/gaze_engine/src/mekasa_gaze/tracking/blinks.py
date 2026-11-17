@@ -1,13 +1,14 @@
-"""Deliberate blink sequences as commands: 2 blinks = select, 4 blinks = start/stop reading.
+"""Deliberate blink sequences as commands (by default 3 = select, 4 = start/stop reading,
+5 = say the message, 7 = urgent call; see ``config/communication.toml``).
 
 A *blink* is a closure of the required eyes (both in BOTH mode, the active eye in LEFT/RIGHT
 mode) lasting between ``min_closed_seconds`` and ``max_closed_seconds``. Blinks separated by
 open intervals of at most ``max_gap_seconds`` form a *sequence*. A sequence is reported only
-once it is over (eyes open for longer than ``max_gap_seconds``), so 2 can be told apart from
-4. Anything else is ignored on purpose:
+once it is over (eyes open for longer than ``max_gap_seconds``), so 3 can be told apart from
+4 or 5. Anything else is ignored on purpose:
 
 * a single blink (spontaneous blinking, ~15-20 per minute at rest);
-* 3, or more than 4, blinks;
+* any count that is not a configured command;
 * a long closure (resting the eyes), which also cancels a sequence in progress;
 * losing the face, which cancels a sequence in progress.
 
@@ -23,8 +24,7 @@ from dataclasses import dataclass
 from mekasa_gaze.core.domain import EyeState
 from mekasa_gaze.core.eye_mode import EyeMode
 
-SELECT_BLINKS = 2
-TOGGLE_BLINKS = 4
+DEFAULT_COMMANDS = (3, 4, 5, 7)
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +44,7 @@ class BlinkDetector:
     min_closed_seconds: float = 0.08
     max_closed_seconds: float = 0.8
     max_gap_seconds: float = 0.8
+    commands: tuple[int, ...] = DEFAULT_COMMANDS
     _closed_since: float | None = None
     _count: int = 0
     _sequence_start: float | None = None
@@ -117,7 +118,7 @@ class BlinkDetector:
             return None
         count, started_at = self._count, self._sequence_start or now
         self._count, self._sequence_start, self._last_blink_end = 0, None, None
-        if count not in (SELECT_BLINKS, TOGGLE_BLINKS):
+        if count not in self.commands:
             self._ignored_sequences += 1
             return None
         return BlinkGesture(count, started_at, now)
@@ -133,4 +134,4 @@ class BlinkDetector:
         return None
 
 
-__all__ = ["SELECT_BLINKS", "TOGGLE_BLINKS", "BlinkDetector", "BlinkGesture"]
+__all__ = ["DEFAULT_COMMANDS", "BlinkDetector", "BlinkGesture"]

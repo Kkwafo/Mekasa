@@ -189,6 +189,26 @@ class Navigator:
         self.screen, self.path, self._pending, self._modifier = Screen.HOME, [], "", None
         return Outcome(screen_changed=changed)
 
+    def speak_draft(self) -> Outcome:
+        """Blink shortcut: say the composed message now, from any screen."""
+        if self._modifier is not None:
+            self._commit(self._pending)  # a phrase waiting for intensity counts as is
+        if not self.draft:
+            return Outcome()
+        text = self.draft_text
+        self.last_said = text
+        self.draft.clear()
+        self.home()
+        return Outcome(speak=text, screen_changed=True)
+
+    def urgent(self) -> Outcome:
+        """Blink shortcut: urgent call from any screen (keeps the draft)."""
+        self.path, self._pending, self._modifier = [], "", None
+        self.screen = Screen.URGENT
+        text = sentence(self.vocabulary.urgent.say)
+        self.last_said = text
+        return Outcome(speak=text, alarm=True, screen_changed=True)
+
     def back(self) -> Outcome:
         """VOLVER: one level up (keyboard shortcut too)."""
         if self.screen is Screen.MENU and self.path:
@@ -241,10 +261,7 @@ class Navigator:
             self.screen = Screen.REVIEW if self.draft else Screen.MENU
             self.path = []
             return Outcome(screen_changed=True)
-        self.screen = Screen.URGENT
-        text = sentence(self.vocabulary.urgent.say)
-        self.last_said = text
-        return Outcome(speak=text, alarm=True, screen_changed=True)
+        return self.urgent()
 
     def _review(self, index: int) -> Outcome:
         if index == 0:

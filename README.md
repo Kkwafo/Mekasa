@@ -264,7 +264,9 @@ uv run mekasa-region-evaluation
 .\scripts\mekasa.ps1 tablero -SinCalibrar   # última calibración + ajuste de 4 puntos (~10 s)
 ```
 
-Opciones: `-Ojo LEFT|RIGHT`, `-Dwell 1.2`, `-Confirmar`, `-Ventana`, `-Repeticiones 3` (prueba).
+Opciones: `-Ojo LEFT|RIGHT`, `-Dwell 1.2`, `-Confirmar`, `-Ventana`, `-Repeticiones 3` (prueba), `-Perfil <etiqueta>` (calibraciones separadas por persona).
+
+Cada sesión queda en `work/communication/history/` y cada calibración en `work/calibration/[profiles/<etiqueta>/]history/`. Son archivos locales y no contienen imágenes ni mensajes.
 
 ### Tablero de conversación (armar mensajes completos con la mirada)
 
@@ -321,7 +323,7 @@ Por defecto (`selection_mode = "combined"`) funcionan **los dos a la vez**.
 * **Mientras se cuenta una serie, el temporizador de mirada se congela.** Así, 5 o 7 parpadeos no terminan eligiendo por tiempo la opción que se estaba mirando.
 * **Primero parpadear, después mirar.** Al parpadear o guiñar, la mirada estimada salta unos instantes, y mirar fijo mientras se parpadea es difícil. Por eso el orden por defecto es: el gesto abre una ventana de 5 s ("Elija"), y la opción que se mira 1 s dentro de esa ventana se elige. El orden anterior sigue disponible con `blink_select_order = "look_then_blink"`.
 * **La mirada se congela 0,3 s al reabrir los ojos** (`blink_settle_seconds`), así un parpadeo no mueve el foco.
-* **El suavizado no se reinicia al parpadear.** Descarta los cuadros con el párpado a medio abrir y usa la mediana de los últimos cuadros. En la sesión B, el acierto en el segundo posterior a un parpadeo pasó de 82,8 % a 100 % (ver `docs/STATUS.md`).
+* **El suavizado no se reinicia al parpadear.** Descarta los cuadros en que el párpado se cierra rápido (como máximo 0,3 s) y usa la mediana de los últimos cuadros. En la sesión B, el acierto en el segundo posterior a un parpadeo pasó de 82,8 % a 100 % (ver `docs/STATUS.md`).
 * **Rango de distancia:** el tablero acepta un rostro de 0,16 a 0,62 del ancho de la imagen (`min_face_width`, `max_face_width`) y compensa la distancia entre 0,65 y 1,55 veces. Solo se reajusta solo con cambios de más del 25 %.
 * **Elegir por tiempo exige apartar la mirada** antes de volver a elegir el mismo casillero. Los parpadeos, que son deliberados, pueden elegir la opción nueva aunque esté en el mismo lugar.
 * **Todo se ajusta** en `config/communication.toml`: `blink_select_count`, `blink_toggle_count`, `blink_speak_count`, `blink_urgent_count`, `combined_dwell_seconds` y `blink_*`. Los tiempos son hipótesis de ingeniería.

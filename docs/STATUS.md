@@ -241,6 +241,38 @@ El factor 1,35 se comparó con 1,0 y 1,25 sobre los mismos datos (B, todos los c
 
 La compensación de distancia sigue siendo una hipótesis de ingeniería. Las sesiones grabadas son a una sola distancia, así que el rango nuevo **no está medido**. A rostros chicos (lejos), los puntos del iris y las imágenes del ojo tienen menos píxeles y más ruido.
 
+## Revisión de registros y corrección "abajo no detecta" (2026-11-17)
+
+**Registros disponibles.** Solo quedaba el reporte de la última sesión (23:39). Cada sesión sobrescribía `board-session-latest.json`, así que las sesiones anteriores se perdieron, incluida la de la otra persona con lentes. Ahora cada sesión se guarda también en `work/communication/history/` y cada calibración en `work/calibration/<perfil>/history/`. Con `-Perfil <etiqueta>` cada persona tiene sus propias calibraciones.
+
+**Última sesión (combinado, ambos ojos, 163 s):**
+
+- **Calibración** (validación cruzada, optimista): 98 % 2×2, abajo 100 %. Eligió puntos del rostro; con imagen del ojo daba 97 %. Guiños reconocidos en los dos ojos (5 y 4).
+- **Tablero:** 8 mensajes (7 por mirada, 1 por guiño). Pero **30 % de los ticks sin mirada utilizable** (934 "ojo no utilizable", 681 "sin predicción"), 24 % del tiempo sin señal y 14 % recuperándola.
+
+**Causas encontradas:**
+
+1. **El filtro de "párpado a medio cerrar" de la versión anterior usaba un nivel fijo de apertura.** Al mirar más abajo que en la calibración, el párpado queda bajo y el filtro retenía la mirada anterior (arriba) sin límite de tiempo.
+   - En el reanálisis de A con la apertura de la fila de abajo × 0,8, la fila de abajo quedó sin ninguna lectura.
+   - Ahora se marca solo una **caída rápida** (menos de 75 % del pico de los últimos 0,15 s) y como máximo 0,3 s. Con la misma prueba, la fila de abajo da 100 % y se retiene 1 % de los cuadros.
+2. **El umbral de ojo cerrado (60 % de la apertura mediana mirando la fila de abajo) quedaba alto si se mira más abajo que en la calibración.** Con la mirada 30 % más baja contaba como cerrados al 11–13 % de esos cuadros. Ahora es 45 %:
+   - 1–2 % de esos cuadros cuentan como cerrados;
+   - en la sesión B se siguen detectando el 94 % de los parpadeos reales.
+3. **Los umbrales de guiño mezclaban cuadros de parpadeo** en la "apertura normal más baja": quedaron en 0,024 y 0,050. Ahora se calculan solo con cuadros con ambos ojos abiertos (percentil 10).
+
+**Versión final contra la de ayer** (A/B, ronda 3 apartada; con la mirada más baja: apertura × 0,8):
+
+| | A, todos | A, abajo | B, todos | B, abajo | cuadros retenidos (B) |
+| --- | --- | --- | --- | --- | --- |
+| Tal como se grabó, ayer → hoy | 99,7 → 100 % | 100 → 100 % | 83,0 → 83,0 % | 70,5 → 70,5 % | 2,3 → 1,1 % |
+| Mirada más baja, ayer → hoy | 99,7 → 100 % | 100 → 100 % | 97,5 → 97,5 % | 100 → 100 % | 6,3 → 1,0 % |
+
+**Lentes y silla:**
+
+- No se pudo analizar la sesión con lentes porque su reporte se sobrescribió.
+- Lo de la silla se reprodujo con la simulación de "mirar más abajo".
+- Recomendación: calibrar **después** de acomodar la silla. Si cambia la altura, recalibrar con `K`; el reajuste automático actúa solo si el rostro se corre más de 0,10 de la imagen.
+
 ## Qué es desarrollo propio y qué es de terceros
 
 | Parte | De quién | Qué hace |

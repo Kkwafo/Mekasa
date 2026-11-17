@@ -145,6 +145,10 @@ class CommunicationConfig:
     auto_realign: bool = True
     implicit_recalibration: bool = True
     distance_compensation: bool = True
+    # Accepted face width (fraction of the image): wider than the research protocol (0.25-0.45)
+    # so the board keeps working closer to and farther from the camera.
+    min_face_width: float = 0.16
+    max_face_width: float = 0.62
     camera_position: tuple[float, float] = (0.5, -0.02)
     # Conversation board (menus to compose full messages) or the simple 4-phrase board.
     interface: str = "conversation"
@@ -199,6 +203,8 @@ class CommunicationConfig:
             raise ValueError("confirmation_window_seconds must be positive")
         if not (0.0 <= self.camera_position[0] <= 1.0 and -0.5 <= self.camera_position[1] <= 1.5):
             raise ValueError("camera_position must be a screen-normalized point near the screen")
+        if not 0.08 <= self.min_face_width < self.max_face_width <= 0.9:
+            raise ValueError("face width band must satisfy 0.08 <= min < max <= 0.9")
         if not 0 <= self.countdown_seconds <= 10:
             raise ValueError("countdown_seconds must be within [0, 10]")
         if self.interface not in ("conversation", "simple"):
@@ -295,6 +301,8 @@ class CommunicationConfig:
             high_contrast=bool(section.get("high_contrast", defaults.high_contrast)),
             phrases=phrases,
             calibrate_at_start=bool(section.get("calibrate_at_start", defaults.calibrate_at_start)),
+            min_face_width=float(section.get("min_face_width", defaults.min_face_width)),
+            max_face_width=float(section.get("max_face_width", defaults.max_face_width)),
             intro=bool(section.get("intro", defaults.intro)),
             countdown_seconds=int(section.get("countdown_seconds", defaults.countdown_seconds)),
             auto_realign=bool(section.get("auto_realign", defaults.auto_realign)),

@@ -49,7 +49,6 @@ from mekasa_gaze.core.domain import CameraFrame, EyeState, FeatureObservation, T
 from mekasa_gaze.core.eye_mode import EyeMode, eye_signal_usable
 from mekasa_gaze.core.interfaces import FeatureExtractor, SpeechBackend
 from mekasa_gaze.core.vocabulary import load_vocabulary
-from mekasa_gaze.runners.live_evaluation import PredictionSmoother
 from mekasa_gaze.services.alarm import play_alarm
 from mekasa_gaze.services.runtime import environment, source_revision
 from mekasa_gaze.services.speech import create_speech_backend
@@ -86,6 +85,7 @@ from mekasa_gaze.tracking.session_calibration import (
     calibration_steps,
     estimated_seconds,
 )
+from mekasa_gaze.tracking.smoothing import RobustGazeSmoother, lid_in_transition
 from mekasa_gaze.tracking.validity import ValidityAssessment, assess_gaze_validity
 from mekasa_gaze.tracking.wink_calibration import (
     REQUESTED_WINKS,
@@ -165,6 +165,7 @@ class PipelineResult:
     tracking_ok: bool
     processing_ms: float
     placement_status: PlacementStatus = _NO_DRIFT
+    held: bool = False  # lid in transition (blink): the previous estimate was kept
 
     @property
     def any_eye_open(self) -> bool:
@@ -172,8 +173,8 @@ class PipelineResult:
 
 
 class GazePipeline:
-    """Frame -> features -> quality gates -> estimate -> distance compensation -> smoothing ->
-    session correction -> board coordinates."""
+    """Frame -> features -> quality gates -> estimate -> distance compensation -> blink-robust
+    smoothing -> session correction -> board coordinates."""
 
     def __init__(
         self,
@@ -186,13 +187,18 @@ class GazePipeline:
         area: tuple[float, float, float, float],
         distance_compensation: bool = False,
         camera_position: tuple[float, float] = (0.5, -0.02),
+        face_width_band: tuple[float, float] | None = None,
     ) -> None:
         self._extractor = extractor
         self._base_validity_config = validity_config
         self._validity_config = _personal_validity(validity_config, model)
         self._model = model
         self._eye_mode = eye_mode
-        self._smoother = PredictionSmoother(smoothing_alpha)
+        self._smoother = RobustGazeSmoother(alpha=smoothing_alpha)
+        self._band = face_width_band or (
+            validity_config.min_face_width,
+            validity_config.max_face_width,
+        )
         self._area = area
         self._correction: Any = None
         self._distance_compensation = distance_compensation
@@ -223,7 +229,7 @@ class GazePipeline:
         self._model = model
         self._validity_config = _personal_validity(self._base_validity_config, model)
         self._correction = None
-        self._smoother.update(None)
+        self._smoother.reset()
         self.monitor.rebase(_reference_of(model))
 
     # Backwards-compatible name used by older callers and tests.
@@ -254,9 +260,7 @@ class GazePipeline:
         t0 = perf_counter() if started is None else started
         validity = assess_gaze_validity(observation, self._validity_config)
         placement = assess_face_placement(
-            observation,
-            min_face_width=self._validity_config.min_face_width,
-            max_face_width=self._validity_config.max_face_width,
+            observation, min_face_width=self._band[0], max_face_width=self._band[1]
         )
         tracking_ok = observation.tracking_state is TrackingState.GOOD and placement.ready
         status = self.monitor.update(
@@ -279,7 +283,12 @@ class GazePipeline:
                 raw = None
         if raw is not None and self._distance_compensation:
             raw = compensate_distance(raw, status.distance_scale, self._camera)
-        smoothed = self._smoother.update(raw)
+        reliable = self._model is None or not lid_in_transition(
+            dict(observation.features),
+            _EYES_OF_MODE[self._eye_mode],
+            self._validity_config.eye_closed_ear_threshold,
+        )
+        smoothed, held = self._smoother.update(frame_timestamp_seconds, raw, reliable=reliable)
         screen = smoothed
         if smoothed is not None and self._correction is not None:
             screen = self._correction.predict(smoothed)
@@ -294,7 +303,15 @@ class GazePipeline:
             tracking_ok=tracking_ok,
             processing_ms=(perf_counter() - t0) * 1000.0,
             placement_status=status,
+            held=held,
         )
+
+
+_EYES_OF_MODE = {
+    EyeMode.BOTH: ("left", "right"),
+    EyeMode.LEFT: ("left",),
+    EyeMode.RIGHT: ("right",),
+}
 
 
 def _reference_of(model: GazeEstimator | None) -> Any:
@@ -796,6 +813,7 @@ def run_board(
                 area=area,
                 distance_compensation=communication.distance_compensation,
                 camera_position=communication.camera_position,
+                face_width_band=(communication.min_face_width, communication.max_face_width),
             )
             calibration: CalibrationProcedure | None = None
             alignment: AlignmentProcedure | None = None

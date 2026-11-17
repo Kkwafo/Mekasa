@@ -180,8 +180,8 @@ def test_board_session_calibrates_tests_and_adapts(
         (4.0, 5.5, None, 0.35),
         (5.5, 8.0, "HELP", 0.35),
         (8.0, 9.5, None, 0.35),
-        (9.5, 14.5, None, 0.42),  # moves closer and stays -> auto re-alignment
-        (14.5, 30.0, "WATER", 0.42),
+        (9.5, 14.5, None, 0.46),  # moves ~25 % closer and stays -> auto re-alignment
+        (14.5, 30.0, "WATER", 0.46),
     ]
 
     def on_board(*args: Any, **kwargs: Any) -> None:

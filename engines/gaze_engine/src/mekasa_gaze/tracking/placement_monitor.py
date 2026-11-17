@@ -105,18 +105,20 @@ class PlacementMonitor:
     Attributes:
         reference: Calibration placement (None disables compensation and drift).
         alpha: EMA weight per frame (0.08 ~ 0.4 s time constant at 30 FPS).
-        distance_tolerance: |log(scale)| beyond this counts as closer/farther (0.12 ~ 13 %).
+        distance_tolerance: |log(scale)| beyond this counts as closer/farther (0.22 ~ 25 %;
+            smaller changes are left to the distance compensation, no re-alignment).
         shift_tolerance: Face-centre shift (image fraction) counted as moved.
-        angle_tolerance: Yaw/pitch change in degrees counted as turned.
-        scale_limits: Clamp on the compensation factor.
+        angle_tolerance: Yaw/pitch change in degrees counted as turned (the calibration's
+            head-movement segment already teaches the model some head rotation).
+        scale_limits: Clamp on the compensation factor (about 0.65x to 1.55x the distance).
     """
 
     reference: PlacementReference | None = None
     alpha: float = 0.08
-    distance_tolerance: float = 0.12
-    shift_tolerance: float = 0.08
-    angle_tolerance: float = 10.0
-    scale_limits: tuple[float, float] = (0.8, 1.25)
+    distance_tolerance: float = 0.22
+    shift_tolerance: float = 0.10
+    angle_tolerance: float = 14.0
+    scale_limits: tuple[float, float] = (0.65, 1.55)
     _state: np.ndarray | None = None
     _drift_since: float | None = None
     _last_drift: Drift = Drift.OK

@@ -326,14 +326,14 @@ def test_placement_monitor_detects_distance_and_rebases() -> None:
     reference = PlacementReference(0.35, 0.5, 0.5, 0.0, 8.0)
     monitor = PlacementMonitor(reference=reference, alpha=1.0)
     near = {
-        "face_width": 0.42,
+        "face_width": 0.46,
         "face_center_x": 0.5,
         "face_center_y": 0.5,
         "head_yaw_degrees": 0.0,
         "head_pitch_degrees": 8.0,
     }
     status = monitor.update(0.0, near)
-    assert status.drift is Drift.CLOSER and status.distance_scale == pytest.approx(0.35 / 0.42)
+    assert status.drift is Drift.CLOSER and status.distance_scale == pytest.approx(0.35 / 0.46)
     assert monitor.update(3.0, near).sustained_seconds == pytest.approx(3.0)
     monitor.rebase()
     assert monitor.update(3.1, near).drift is Drift.OK

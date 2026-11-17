@@ -45,6 +45,10 @@ implicit_recalibration = true
 # Scale predictions about the camera by calibration face width / current face width, the
 # projective effect of viewing distance. Engineering hypothesis until measured.
 distance_compensation = true
+# Accepted face width as a fraction of the image (closer = wider). The research protocol uses
+# 0.25-0.45; the board accepts more range. Beyond these limits the board asks to move.
+min_face_width = 0.16
+max_face_width = 0.62
 # Camera position in screen-normalized coordinates (x, y). Default: top-centre bezel.
 camera_position = [0.5, -0.02]
 

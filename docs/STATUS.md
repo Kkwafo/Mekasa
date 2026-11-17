@@ -160,6 +160,46 @@ Sin medir con persona:
 
 Sugerencia: medir 10 dobles parpadeos voluntarios y 5 minutos de reposo (falsas selecciones), y ajustar `blink_*`.
 
+## Modo combinado y atajos por parpadeo (2026-11-16, noche)
+
+Pedido: mirada y parpadeo a la vez. Mirar 3 s elige; 3 parpadeos eligen; 5 dicen el mensaje; 7 llaman a urgencias.
+
+| Parte | Detalle | Estado |
+| --- | --- | --- |
+| `selection_mode = "combined"` (por defecto) | Mirar `combined_dwell_seconds` (3 s) elige; mirar 0,4 s arma la opción para elegirla con parpadeos | implementado; tests de sesión y de punta a punta |
+| Gestos configurables | 3 elegir · 4 empezar/parar · 5 decir · 7 urgencia (`blink_*_count`, distintos entre 2 y 9) | implementado |
+| Urgencia por parpadeo | Funciona en cualquier fase y pantalla, aun en pausa o calibrando | implementado; test de punta a punta |
+| Temporizador congelado durante una serie | Evita elegir por tiempo en medio de 5 o 7 parpadeos | implementado; test unitario |
+| Rearme | Por tiempo hay que apartar la mirada; por parpadeo se puede elegir lo que quedó en el mismo lugar | implementado; test unitario y de punta a punta |
+
+Sin medir con persona:
+
+- **Contar con precisión 3, 4 y 5.** Si confunde 4 con 5 se pausa en lugar de decir; los números se pueden separar más (por ejemplo 3 / 5 / 7 / 9).
+- **El temporizador se congela 0,8 s** después de cada parpadeo espontáneo: elegir por tiempo puede tardar algo más.
+- **Urgencias falsas** por series largas involuntarias.
+
+## Qué es desarrollo propio y qué es de terceros
+
+| Parte | De quién | Qué hace |
+| --- | --- | --- |
+| MediaPipe Face Landmarker (`face_landmarker.task` y la librería `mediapipe`) | **Google**. Redes neuronales pre-entrenadas, congeladas, no las entrenamos | Detecta la cara y devuelve 478 puntos (incluidos iris y párpados) y la pose de la cabeza en cada imagen. **Es la única red neuronal del sistema.** El modelo se descarga aparte; su licencia de redistribución está pendiente de revisar |
+| OpenCV, NumPy, Pillow, psutil | Proyectos abiertos (Apache 2.0 / BSD / HPND) | Cámara y procesamiento de imagen; álgebra; texto con acentos; métricas del sistema |
+| Voz en español | **Microsoft** (Windows SAPI, voz local) | Leer los mensajes en voz alta |
+| Todo lo demás en `engines/gaze_engine/src` | **Desarrollo propio de Mekasa** | Ver la lista de abajo |
+
+El desarrollo propio incluye:
+
+- **Señal:** rasgos del ojo (apertura del ojo, iris normalizado, posición respecto de las comisuras), imágenes del ojo de 20×10 y reglas de calidad de señal.
+- **Calibración en la sesión:** con selección automática del modelo y umbral personal de ojo cerrado.
+- **Corrección durante el uso:** monitor de distancia, reajuste automático y aprendizaje por selección.
+- **Interacción:** detector de parpadeos y sesión de selección con sus bloqueos de seguridad.
+- **Comunicación:** tablero de conversación y vocabulario, interfaz, script y reportes.
+
+**¿Hay una red neuronal propia para la calibración? No.** El modelo personal es una **regresión ridge**, un modelo lineal con regularización, entrenado en ~35 s con la propia persona. Sobre los puntos del rostro, las imágenes del ojo o ambos, se elige automáticamente.
+
+- **Por qué no una red neuronal:** con ~700 imágenes muy parecidas de una sola persona y una sola sesión, una red sobreajusta. El modelo lineal con validación cruzada es lo que los datos sostienen (en las sesiones de hoy: 95–98 % 2×2 con puntos del rostro).
+- **El hito 3 (red pequeña propia en CPU) sigue pendiente.** Tiene sentido como candidata más dentro de la misma selección, que solo se usa si gana en las rondas apartadas. Mejor todavía: una red pre-entrenada con muchas personas y personalizada con pocos puntos (FAZE, He et al.), lo que exige datasets con licencia compatible.
+
 ## Resultados por modo con baseline y modelo adaptado
 
 Baseline Ridge por modo: ver la sesión del 2026-11-16 arriba. **No hay modelo adaptado todavía** (hito 3). El resultado anterior es del 2026-09-21, en modo binocular y con distancia mayor:

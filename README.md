@@ -286,27 +286,37 @@ Ejemplo: HABLAR → CÓMO ESTOY → ME DUELE → CABEZA → MUCHO → AGREGAR �
 * **Privacidad:** el reporte cuenta selecciones y mensajes dichos, pero no guarda su contenido.
 * **El tablero simple** sigue disponible con `--interface simple` o `-Simple`.
 
-### Cómo se elige: por tiempo o por parpadeo
+### Cómo se elige: mirada, parpadeos o los dos
 
-| Modo | Elegir | Empezar / parar |
-| --- | --- | --- |
-| **Por tiempo** (por defecto) | Mirar la opción durante el dwell (0,9 s) | 4 parpadeos seguidos o `ESPACIO` |
-| **Por parpadeo** (`-Parpadeo` o `--selection blink`) | Mirar la opción hasta que se marque con borde amarillo y el texto "parpadee 2 veces", y después **parpadear 2 veces**. Nunca elige por tiempo | Empieza **en espera**: 4 parpadeos seguidos empiezan a leer y otros 4 lo pausan (o `ESPACIO`) |
+Por defecto (`selection_mode = "combined"`) funcionan **los dos a la vez**.
+
+| Gesto | Qué hace |
+| --- | --- |
+| Mirar una opción **3 s** | La elige |
+| Mirar una opción y **parpadear 3 veces seguidas** | La elige sin esperar los 3 s |
+| **4 parpadeos** | Empieza o para la lectura (también `ESPACIO`) |
+| **5 parpadeos** | Dice ya el mensaje armado, desde cualquier pantalla |
+| **7 parpadeos** | Llamada de urgencia: voz y alarma, desde cualquier pantalla, aun en pausa o calibrando |
 
 ```powershell
-.\scripts\mekasa.ps1 tablero -Parpadeo
+.\scripts\mekasa.ps1 tablero              # los dos (mirar 3 s o 3 parpadeos)
+.\scripts\mekasa.ps1 tablero -Dwell 2     # mirar 2 s en lugar de 3
+.\scripts\mekasa.ps1 tablero -Parpadeo    # solo parpadeos: mirar nunca elige
+.\scripts\mekasa.ps1 tablero -SoloTiempo  # solo mirada (0,9 s)
 ```
 
 * **Un parpadeo** es cerrar los ojos entre 0,08 y 0,8 s: los dos en "ambos ojos", el ojo activo en modo de un ojo.
-* **Una serie** son parpadeos separados por menos de 0,8 s con los ojos abiertos. Se reconoce al terminar, así que 2 y 4 no se confunden.
+* **Una serie** son parpadeos separados por menos de 0,8 s con los ojos abiertos. Se reconoce al terminar, así que 3, 4, 5 y 7 no se confunden mientras se cuentan.
 * **Se ignoran:**
-  * un parpadeo suelto (los espontáneos);
-  * 3, o más de 4;
-  * cerrar los ojos más de 0,8 s (descansar), que además cancela la serie;
+  * un parpadeo suelto;
+  * cantidades sin función (2, 6, 8 o más);
+  * cerrar los ojos más de 0,8 s, que además cancela la serie;
   * perder el rostro.
 * **Arriba aparece** "Parpadeos: n" mientras se cuenta.
-* **Elegir con 2 parpadeos** requiere además que la mirada haya estado estable sobre esa opción justo antes (0,4 s, dentro de los últimos 3 s). Las pérdidas de cámara o de rostro desarman la opción.
-* **Todos los tiempos son hipótesis de ingeniería** y se ajustan en `config/communication.toml` (`blink_*`).
+* **Mientras se cuenta una serie, el temporizador de mirada se congela.** Así, 5 o 7 parpadeos no terminan eligiendo por tiempo la opción que se estaba mirando.
+* **Elegir con parpadeos** requiere que la mirada haya estado estable sobre la opción (0,4 s, dentro de los últimos 3 s). La opción lista muestra el texto "parpadee 3 veces".
+* **Elegir por tiempo exige apartar la mirada** antes de volver a elegir el mismo casillero. Los parpadeos, que son deliberados, pueden elegir la opción nueva aunque esté en el mismo lugar.
+* **Todo se ajusta** en `config/communication.toml`: `blink_select_count`, `blink_toggle_count`, `blink_speak_count`, `blink_urgent_count`, `combined_dwell_seconds` y `blink_*`. Los tiempos son hipótesis de ingeniería.
 
 ### Tablero de comunicación (opciones comunes)
 

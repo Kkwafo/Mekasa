@@ -293,11 +293,10 @@ Por defecto (`selection_mode = "combined"`) funcionan **los dos a la vez**.
 | Gesto | Qué hace |
 | --- | --- |
 | Mirar una opción **3 s** | La elige |
-| Mirar una opción y **parpadear 3 veces seguidas** | La elige sin esperar los 3 s |
-| Mirar una opción y hacer **3 guiños con un ojo** (solo el ojo que la calibración reconoció) | La elige |
+| **3 parpadeos** (o **3 guiños** con un ojo que la calibración reconoció) **y después mirar** la opción **1 s** | La elige. Mientras parpadea puede mirar a cualquier lado; tiene 5 s para mirar la opción ("Elija") |
 | **4 parpadeos** | Empieza o para la lectura (también `ESPACIO`) |
 | **5 parpadeos** | Dice ya el mensaje armado, desde cualquier pantalla |
-| **7 parpadeos** | Llamada de urgencia: voz y alarma, desde cualquier pantalla, aun en pausa o calibrando |
+| **7 o más parpadeos** | Llamada de urgencia **en el acto** (voz y alarma), desde cualquier pantalla, aun en pausa o calibrando. Si sigue parpadeando, **la repite** sin esperar (como mucho cada 2,5 s) |
 
 ```powershell
 .\scripts\mekasa.ps1 tablero              # los dos (mirar 3 s o 3 parpadeos)
@@ -320,7 +319,8 @@ Por defecto (`selection_mode = "combined"`) funcionan **los dos a la vez**.
   * Se desactiva con `calibrate_winks = false`.
 * **Arriba aparece** "Parpadeos: n" o "Guiños ojo derecho: n" mientras se cuenta.
 * **Mientras se cuenta una serie, el temporizador de mirada se congela.** Así, 5 o 7 parpadeos no terminan eligiendo por tiempo la opción que se estaba mirando.
-* **Elegir con parpadeos** requiere que la mirada haya estado estable sobre la opción (0,4 s, dentro de los últimos 3 s). La opción lista muestra el texto "parpadee 3 veces".
+* **Primero parpadear, después mirar.** Al parpadear o guiñar, la mirada estimada salta unos instantes, y mirar fijo mientras se parpadea es difícil. Por eso el orden por defecto es: el gesto abre una ventana de 5 s ("Elija"), y la opción que se mira 1 s dentro de esa ventana se elige. El orden anterior sigue disponible con `blink_select_order = "look_then_blink"`.
+* **La mirada se congela 0,3 s al reabrir los ojos** (`blink_settle_seconds`), así un parpadeo no mueve el foco.
 * **Elegir por tiempo exige apartar la mirada** antes de volver a elegir el mismo casillero. Los parpadeos, que son deliberados, pueden elegir la opción nueva aunque esté en el mismo lugar.
 * **Todo se ajusta** en `config/communication.toml`: `blink_select_count`, `blink_toggle_count`, `blink_speak_count`, `blink_urgent_count`, `combined_dwell_seconds` y `blink_*`. Los tiempos son hipótesis de ingeniería.
 

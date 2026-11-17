@@ -193,6 +193,19 @@ Sin medir con persona:
 - Si puede guiñar con cada ojo de forma confiable.
 - Si al guiñar el otro ojo se entrecierra lo suficiente para que el guiño se lea como parpadeo de ambos ojos (entonces no cuenta).
 
+## Primero parpadear, después mirar; urgencia con 7 o más (2026-11-17)
+
+Comentario de la persona: "al pestañear o guiñar el ojo a veces se va para otro lado", y mirar fijo mientras se parpadea cuesta.
+
+| Cambio | Detalle | Estado |
+| --- | --- | --- |
+| `blink_select_order = "blink_then_look"` (por defecto) | 3 parpadeos o guiños abren una ventana de 5 s (estado SELECTING, "Elija"). La opción mirada 1 s dentro de la ventana se elige. La mirada durante el gesto no importa. Otro parpadeo no cierra la ventana; perder la cara o pausar sí | implementado; tests de sesión y de punta a punta (mirando a otro lado durante el gesto) |
+| Mirada congelada al reabrir | Se mantiene el último punto estable 0,3 s después de cada cierre | implementado |
+| Urgencia con 7 **o más** | Se dispara en el séptimo parpadeo, sin esperar al final de la serie. Si sigue, se repite como mucho cada 2,5 s | implementado; tests unitario y de punta a punta (14 parpadeos = 2 llamadas) |
+| Urgencia desactivada durante el paso de guiños | Ese paso pide cierres repetidos (y quien no aísla un ojo cierra los dos). Lo encontró el test de punta a punta | corregido; test |
+
+Sin medir con persona: si 1 s de mirada después del gesto es cómodo (`intent_focus_seconds`) y si 0,3 s de congelamiento alcanzan.
+
 ## Qué es desarrollo propio y qué es de terceros
 
 | Parte | De quién | Qué hace |

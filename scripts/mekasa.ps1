@@ -1,4 +1,4 @@
-﻿﻿<#
+﻿<#
 .SYNOPSIS
     Mekasa: instalar, probar y usar el tablero desde PowerShell.
 

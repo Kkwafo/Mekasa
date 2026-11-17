@@ -39,6 +39,7 @@ class World:
     gaze: tuple[float, float] = (0.5, 0.6)
     face_width: float = 0.35
     closed: bool = False
+    closed_eyes: tuple[str, ...] = ()
     keys: list[int] = field(default_factory=list)
     summaries: list[str] = field(default_factory=list)
     alignment_reasons: list[str | None] = field(default_factory=list)
@@ -86,6 +87,7 @@ def _install_fakes(monkeypatch: pytest.MonkeyPatch, world: World, speech: FakeSp
                 timestamp_ns=timestamp_ns,
                 face_width=world.face_width,
                 eyes_closed=world.closed,
+                closed_eyes=world.closed_eyes,
                 rng=self._rng,
             )
 
@@ -496,3 +498,104 @@ def test_combined_mode_dwell_or_blinks_and_blink_shortcuts(
     assert sources == {"blink": 2, "gaze": 2}, sources
     blink_stats = report["measurement"]["blinks"]
     assert blink_stats["speak_gestures"] == 1 and blink_stats["urgent_gestures"] == 1
+
+
+def test_calibration_learns_winks_and_three_right_winks_choose(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The wink step finds that the right eye can wink and the left cannot; on the board three
+    right winks choose HABLAR, while left 'winks' are ignored and the 3 s look chooses."""
+    world = World()
+    speech = FakeSpeech()
+    _install_fakes(monkeypatch, world, speech)
+    guided = replace(
+        GuidedValidationConfig.load(ROOT / "config" / "experiment-001.toml"),
+        canvas_width=640,
+        canvas_height=360,
+    )
+    area = board_view.board_area(640, 360)
+    gap = board_view.board_to_screen((0.5, 0.5), area)
+    communication = CommunicationConfig.load(ROOT / "config" / "communication.toml")
+    assert communication.calibrate_winks and communication.selection_mode == "combined"
+    summaries: list[list[str]] = []
+
+    original_wink = board.render_wink_step
+
+    def wink_hook(*args: Any, **kwargs: Any) -> Any:
+        eye = args[2]
+        phase = (world.t * 1000) % 600  # close for 0.2 s every 0.6 s
+        if eye == "right":
+            world.closed, world.closed_eyes = False, ("right",) if phase < 200 else ()
+        else:  # cannot isolate the left eye: both close
+            world.closed, world.closed_eyes = phase < 200, ()
+        world.gaze = gap
+        return original_wink(*args, **kwargs)
+
+    original_summary = board.render_summary
+
+    def summary_hook(*args: Any, **kwargs: Any) -> Any:
+        world.closed, world.closed_eyes = False, ()
+        lines = [text for text, _ in args[3]]
+        if not summaries or summaries[-1] != lines:
+            summaries.append(lines)
+        return original_summary(*args, **kwargs)
+
+    def winks(eye: str, label: str) -> list[tuple[float, str, tuple[str, ...]]]:
+        actions: list[tuple[float, str, tuple[str, ...]]] = []
+        for index in range(3):
+            actions.append((0.2, label, (eye,)))
+            actions.append((0.3 if index < 2 else 1.5, label, ()))
+        return actions
+
+    sep = "\u203a"
+    timeline = [
+        (1.0, None, ()),
+        (1.0, "HABLAR", ()),
+        *winks("right", "HABLAR"),  # chosen by right winks (before the 3 s look)
+        (1.0, f"NECESITO {sep}", ()),
+        *winks("left", f"NECESITO {sep}"),  # ignored; the look keeps counting
+        (2.5, f"NECESITO {sep}", ()),
+        (1.0, None, ()),
+    ]
+    ends = np.cumsum([duration for duration, _, _ in timeline])
+
+    def render_board_hook(*args: Any, **kwargs: Any) -> Any:
+        if world.board_started_at is None:
+            world.board_started_at = world.t
+        elapsed = world.t - world.board_started_at
+        index = int(np.searchsorted(ends, elapsed, side="right"))
+        if index >= len(timeline):
+            world.keys.append(27)
+            world.closed_eyes = ()
+            return original(*args, **kwargs)
+        _, label, closed_eyes = timeline[index]
+        world.closed, world.closed_eyes = False, closed_eyes
+        labels = [cell for cell, _ in kwargs["cells"]] if kwargs.get("cells") else []
+        if label is not None and label in labels:
+            world.gaze = _center(area, ("YES", "NO", "WATER", "HELP")[labels.index(label)])
+        else:
+            world.gaze = gap
+        return original(*args, **kwargs)
+
+    original = board.render_board
+    monkeypatch.setattr(board, "render_wink_step", wink_hook)
+    monkeypatch.setattr(board, "render_summary", summary_hook)
+    monkeypatch.setattr(board, "render_board", render_board_hook)
+    report = board.run_board(
+        communication=communication,
+        guided_config=guided,
+        calibrations=board.calibration_paths(tmp_path),
+        face_model_path=tmp_path / "unused.task",
+        smoothing_alpha=0.25,
+        speech_settings={},
+        fullscreen=False,
+        calibration_dir=tmp_path,
+    )
+    winks_report = report["calibration"]["winks"]
+    assert winks_report["right_wink"] and not winks_report["left_wink"], winks_report
+    assert any("Guiño ojo derecho: 3 de 3" in line for line in summaries[0]), summaries
+    assert any("izquierdo: no se reconoció" in line for line in summaries[0])
+    assert (tmp_path / "session-wink-profile.json").exists()
+    assert "Cierre solo el ojo derecho, tres veces." in speech.spoken
+    sources = report["measurement"]["session"]["confirmations_by_source"]
+    assert sources == {"wink": 1, "gaze": 1}, (sources, report["measurement"]["blinks"])

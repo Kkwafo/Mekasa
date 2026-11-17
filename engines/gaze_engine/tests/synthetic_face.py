@@ -63,6 +63,7 @@ def observation_for(
     vertical_in_landmarks: bool = False,
     face_width: float = 0.35,
     eyes_closed: bool = False,
+    closed_eyes: tuple[str, ...] = (),
     rng: np.random.Generator | None = None,
 ) -> FeatureObservation:
     """Observation of a person looking at ``gaze``.
@@ -92,7 +93,7 @@ def observation_for(
                 f"{eye}_iris_y": iris_y + float(rng.normal(0, 0.02)),
                 f"{eye}_iris_v": iris_y + float(rng.normal(0, 0.02)),
                 f"{eye}_eye_aspect_ratio": 0.03
-                if eyes_closed
+                if eyes_closed or eye in closed_eyes
                 else 0.30 - 0.05 * gaze[1] + float(rng.normal(0, 0.02)),
                 f"{eye}_eye_vertical_span": 0.02,
             }

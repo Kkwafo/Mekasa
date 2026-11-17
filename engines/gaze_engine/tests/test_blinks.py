@@ -244,3 +244,83 @@ def test_combined_after_a_dwell_choice_blinks_may_choose_the_same_cell_but_dwell
     assert updates[-1].armed is not None  # ...but deliberate blinks can choose it
     blink = session.select_by_blink(clock.t)
     assert blink is not None and blink.confirmed_source == "blink"
+
+
+# ---------------------------------------------------------------- winks
+
+
+def test_winks_of_an_enabled_eye_form_their_own_sequence() -> None:
+    feed = Feed(BlinkDetector(winks=("right",), wink_commands=(3,)))
+    feed.run(0.5, OPEN)
+    for _ in range(3):
+        feed.run(0.2, OPEN, CLOSED)  # right eye closed, left open
+        feed.run(0.3, OPEN)
+    feed.run(1.0, OPEN)
+    assert [(g.count, g.eyes) for g in feed.gestures] == [(3, "right")]
+    # Left winks are not enabled: those frames are ignored (no closure, no count).
+    for _ in range(3):
+        feed.run(0.2, CLOSED, OPEN)
+        feed.run(0.3, OPEN)
+    feed.run(1.0, OPEN)
+    assert len(feed.gestures) == 1
+    # A both-eyes blink in the middle starts a new sequence of another kind.
+    feed.run(0.2, OPEN, CLOSED)
+    feed.run(0.3, OPEN)
+    feed.blinks(3)
+    feed.run(1.0, OPEN)
+    assert [(g.count, g.eyes) for g in feed.gestures] == [(3, "right"), (3, "both")]
+
+
+def test_single_eye_mode_never_reports_winks() -> None:
+    feed = Feed(BlinkDetector(eye_mode=EyeMode.RIGHT, winks=("right",)))
+    feed.run(0.5, OPEN)
+    for _ in range(3):
+        feed.run(0.2, OPEN, CLOSED)
+        feed.run(0.3, OPEN)
+    feed.run(1.0, OPEN)
+    assert [(g.count, g.eyes) for g in feed.gestures] == [(3, "both")]  # the active eye
+
+
+def test_wink_calibration_learns_per_eye_and_detects_who_can_wink() -> None:
+    from mekasa_gaze.tracking.wink_calibration import WinkCalibration, fit_wink_profile
+
+    grid = {"left": [0.30] * 200 + [0.18] * 40, "right": [0.29] * 200 + [0.17] * 40}
+    step = WinkCalibration({"left": 0.29, "right": 0.28}, seconds=4.0)
+    t, snapshots = 0.0, []
+
+    def frame(left: float, right: float, seconds: float) -> None:
+        nonlocal t
+        for _ in range(round(seconds * FPS)):
+            t += 1 / FPS
+            snapshots.append(
+                step.update(t, {"left_eye_aspect_ratio": left, "right_eye_aspect_ratio": right})
+            )
+
+    # Right eye: three clean winks (left stays open).
+    for _ in range(3):
+        frame(0.29, 0.29, 0.4)
+        frame(0.28, 0.05, 0.25)
+    frame(0.29, 0.29, 1.5)
+    assert max(s.detected for s in snapshots if s.eye == "right") == 3
+    # Left eye: the person cannot isolate it, both eyes close.
+    while not snapshots[-1].done:
+        frame(0.29, 0.29, 0.4)
+        frame(0.05, 0.07, 0.25)
+    profile = fit_wink_profile(step.records, grid)
+    assert profile.right_wink and not profile.left_wink
+    assert profile.right_detected == 3 and profile.left_detected == 0
+    assert 0.05 < profile.right_threshold < 0.17  # below the lowest normal aperture (looking down)
+    states = profile.eye_states(
+        {"left_eye_aspect_ratio": 0.28, "right_eye_aspect_ratio": 0.06}, OPEN, OPEN
+    )
+    assert states == (OPEN, CLOSED)
+
+
+def test_interrupt_resets_dwell_when_the_screen_changes_under_the_gaze() -> None:
+    session, clock = _combined()
+    clock.run(YES_POINT, 2.8)  # 2.3 s of a 3 s look
+    session.interrupt(clock.t)  # e.g. 7 blinks opened the urgent screen
+    updates = clock.run(YES_POINT, 1.5)
+    assert not any(update.confirmed for update in updates)
+    assert updates[0].state is SessionState.COOLDOWN
+    assert updates[-1].progress < 0.3  # the 3 s look restarted from zero after the cooldown

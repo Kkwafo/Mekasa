@@ -253,7 +253,17 @@ class CommunicationSession:
         """Clear the displayed message (explicit user/caregiver action only)."""
         self._message = None
 
-    def select_by_blink(self, now_seconds: float) -> SessionUpdate | None:
+    def interrupt(self, now_seconds: float) -> None:
+        """The screen changed outside a selection (blink shortcut, key): what is under the
+        gaze is new, so drop focus, armed and pending options and give a cooldown to read."""
+        self._cancel_focus()
+        self._discard_pending()
+        self._armed = None
+        self._cooldown_until = max(
+            self._cooldown_until, now_seconds + self._config.cooldown_seconds
+        )
+
+    def select_by_blink(self, now_seconds: float, *, source: str = "blink") -> SessionUpdate | None:
         """Confirm the armed option after a deliberate double blink.
 
         Returns None (and counts a rejection) unless: blink mode, gaze enabled, not paused,
@@ -273,7 +283,7 @@ class CommunicationSession:
             return None
         self._armed = None
         self._clear_focus()
-        return self._confirm(option, now_seconds, "blink")
+        return self._confirm(option, now_seconds, source)
 
     def select_direct(self, key: str, now_seconds: float, *, source: str) -> SessionUpdate:
         """Confirm an option through direct access (keyboard, pointer or switch).

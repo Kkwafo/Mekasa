@@ -162,12 +162,14 @@ def status_text(
     blink_toggle: bool = False,
     blink_select_count: int = 0,
     blink_toggle_count: int = 4,
+    wink_count: int = 0,
 ) -> str:
     """Short Spanish status line for the person and their support.
 
     ``hint`` explains a tracking loss (e.g. move closer); ``notice`` replaces the idle "ready"
     line (e.g. a placement change since calibration).
     """
+    gesture = select_gesture_text(blink_select_count, wink_count)
     state = update.state
     if state is SessionState.NO_CALIBRATION:
         return "Sin calibración para este modo · use las teclas 1 a 4"
@@ -188,10 +190,10 @@ def status_text(
         label = (labels or {}).get(update.focused.key, update.focused.label)
         name = label.rstrip(" \u203a")
         armed = update.armed is not None and update.armed.key == update.focused.key
-        if blink_select_count and armed and blink_mode:
-            return f"Parpadee {blink_select_count} veces para elegir {name}"
-        if blink_select_count and armed:
-            return f"Mirando {name}… o parpadee {blink_select_count} veces"
+        if gesture and armed and blink_mode:
+            return f"Para elegir {name}: {gesture}"
+        if gesture and armed:
+            return f"Mirando {name}… o {gesture}"
         return f"Mirando {label.rstrip(' \u203a')}…"
     if state is SessionState.AWAITING_CONFIRMATION and update.pending is not None:
         label = (labels or {}).get(update.pending.key, update.pending.label)
@@ -202,15 +204,37 @@ def status_text(
         if blink_select_count and update.armed is not None:
             label = (labels or {}).get(update.armed.key, update.armed.label)
             name = label.rstrip(" \u203a")
-            return f"Parpadee {blink_select_count} veces para elegir {name} o aparte la mirada"
+            return f"Para elegir {name}: {gesture} (o aparte la mirada)"
         return "Confirmado · aparte la mirada para elegir otra vez"
     if notice:
         return notice
     if location and blink_mode:
-        return f"{location} · mire una opción y parpadee {blink_select_count} veces"
+        return f"{location} · mire una opción y {gesture}"
     if location:
         return f"{location} · mire una opción"
     return f"Listo · {_MODE_TEXT[eye_mode]}: mire una opción"
+
+
+def select_gesture_text(blink_select_count: int, wink_count: int = 0) -> str:
+    """How to choose the armed option, e.g. "parpadee 3 veces" or "3 parpadeos o 3 guiños"."""
+    if not blink_select_count and not wink_count:
+        return ""
+    if not wink_count:
+        return f"parpadee {blink_select_count} veces"
+    if not blink_select_count:
+        return f"guiñe {wink_count} veces"
+    if wink_count == blink_select_count:
+        return f"{blink_select_count} parpadeos o guiños"
+    return f"{blink_select_count} parpadeos o {wink_count} guiños"
+
+
+def blink_counter_text(count: int, kind: str | None) -> str:
+    """Live feedback while a sequence is counted."""
+    if kind == "left":
+        return f"Guiños ojo izquierdo: {count}"
+    if kind == "right":
+        return f"Guiños ojo derecho: {count}"
+    return f"Parpadeos: {count}"
 
 
 def render_board(
@@ -236,6 +260,8 @@ def render_board(
     blink_count: int = 0,
     blink_select_count: int = 0,
     blink_toggle_count: int = 4,
+    wink_count: int = 0,
+    blink_kind: str | None = None,
 ) -> npt.NDArray[np.uint8]:
     """Render one frame of the board.
 
@@ -261,6 +287,8 @@ def render_board(
         blink_count: Blinks of a sequence in progress, shown as feedback.
         blink_select_count: Blinks that choose the armed option (0 = blink selection off).
         blink_toggle_count: Blinks that start/stop reading.
+        wink_count: One-eye winks that choose the armed option (0 = winks off).
+        blink_kind: Kind of the sequence being counted (both, left, right).
     """
     labels = (
         {option.key: cell[0] for option, cell in zip(layout.options, cells, strict=False)}
@@ -282,7 +310,7 @@ def render_board(
     indicators_w = int(width * 0.30)
     draw_text(
         canvas,
-        f"Parpadeos: {blink_count}"
+        blink_counter_text(blink_count, blink_kind)
         if blink_count
         else status_text(
             update,
@@ -295,6 +323,7 @@ def render_board(
             blink_toggle=blink_toggle,
             blink_select_count=blink_select_count,
             blink_toggle_count=blink_toggle_count,
+            wink_count=wink_count,
         ),
         (margin_px, 0, width - indicators_w, status_h),
         palette.focus
@@ -313,7 +342,7 @@ def render_board(
             canvas, (margin_px, status_h - 6), (margin_px + bar_w, status_h - 2), palette.good, -1
         )
 
-    armed_hint = f"parpadee {blink_select_count} veces" if blink_select_count else ""
+    armed_hint = select_gesture_text(blink_select_count, wink_count)
     for index, option in enumerate(layout.options):
         label, kind = cells[index] if cells and index < len(cells) else (option.label, "")
         _draw_option(canvas, option, update, area, palette, flash, label, kind, armed_hint)
@@ -403,6 +432,70 @@ def render_calibration(
         warning=not signal_ok,
         footer=f"Punto {min(snapshot.index + 1, snapshot.total)} de {snapshot.total} · ESC = salir",
     )
+
+
+def render_wink_step(
+    width: int,
+    height: int,
+    eye: str,
+    detected: int,
+    requested: int,
+    seconds_left: float,
+    *,
+    high_contrast: bool = True,
+    signal_ok: bool = True,
+) -> npt.NDArray[np.uint8]:
+    """Calibration step: close only one eye (anatomical side), with live count."""
+    palette = HIGH_CONTRAST if high_contrast else SOFT
+    canvas = np.empty((height, width, 3), dtype=np.uint8)
+    canvas[:] = palette.background
+    side = "DERECHO" if eye == "right" else "IZQUIERDO"
+    margin = int(width * 0.06)
+    status_h = int(height * STATUS_FRACTION)
+    draw_text(
+        canvas,
+        "Guiños · así sabremos si puede elegir cerrando un solo ojo"
+        if signal_ok
+        else "Guiños · no se ven bien los ojos: acérquese o mejore la luz",
+        (int(width * _MARGIN), 0, width - int(width * _MARGIN), status_h),
+        palette.status_text if signal_ok else palette.warning,
+        max_size=max(14, int(status_h * 0.55)),
+        bold=False,
+        align="left",
+    )
+    draw_text(
+        canvas,
+        f"Cierre solo el ojo {side}",
+        (margin, int(height * 0.2), width - margin, int(height * 0.42)),
+        palette.focus,
+        max_size=int(height * 0.12),
+    )
+    draw_text(
+        canvas,
+        f"{requested} veces, despacio, con el otro ojo abierto",
+        (margin, int(height * 0.44), width - margin, int(height * 0.56)),
+        palette.status_text,
+        max_size=int(height * 0.06),
+        bold=False,
+    )
+    radius = int(height * 0.045)
+    spacing = radius * 3
+    start_x = width // 2 - spacing * (requested - 1) // 2
+    for index in range(requested):
+        center = (start_x + index * spacing, int(height * 0.7))
+        if index < detected:
+            cv2.circle(canvas, center, radius, palette.good, -1, cv2.LINE_AA)
+        else:
+            cv2.circle(canvas, center, radius, palette.muted, 3, cv2.LINE_AA)
+    draw_text(
+        canvas,
+        f"Si no puede, no pasa nada: quedan {int(seconds_left)} s · ESC = salir",
+        (0, height - status_h, width, height),
+        palette.muted,
+        max_size=max(12, status_h // 3),
+        bold=False,
+    )
+    return canvas
 
 
 def render_summary(
@@ -668,6 +761,8 @@ __all__ = [
     "render_board",
     "render_calibration",
     "render_summary",
+    "render_wink_step",
     "screen_to_board",
+    "select_gesture_text",
     "status_text",
 ]

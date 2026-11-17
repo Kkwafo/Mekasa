@@ -53,7 +53,7 @@ from mekasa_gaze.runners.live_evaluation import PredictionSmoother
 from mekasa_gaze.services.alarm import play_alarm
 from mekasa_gaze.services.runtime import environment, source_revision
 from mekasa_gaze.services.speech import create_speech_backend
-from mekasa_gaze.tracking.blinks import BlinkDetector
+from mekasa_gaze.tracking.blinks import BOTH, BlinkDetector
 from mekasa_gaze.tracking.calibration import load_calibration_model
 from mekasa_gaze.tracking.communication import CommunicationSession, GazeInput, SessionUpdate
 from mekasa_gaze.tracking.conversation import Navigator
@@ -87,6 +87,14 @@ from mekasa_gaze.tracking.session_calibration import (
     estimated_seconds,
 )
 from mekasa_gaze.tracking.validity import ValidityAssessment, assess_gaze_validity
+from mekasa_gaze.tracking.wink_calibration import (
+    REQUESTED_WINKS,
+    WinkCalibration,
+    WinkProfile,
+    fit_wink_profile,
+    load_wink_profile,
+    save_wink_profile,
+)
 from mekasa_gaze.ui.board_view import (
     board_area,
     board_to_screen,
@@ -95,6 +103,7 @@ from mekasa_gaze.ui.board_view import (
     render_board,
     render_calibration,
     render_summary,
+    render_wink_step,
     screen_to_board,
 )
 
@@ -535,7 +544,7 @@ class InstructedTest:
             self._next_at = now + self.lead_in_seconds
         current = self._current
         if current is not None:
-            if confirmed_key is not None and source in ("gaze", "blink"):
+            if confirmed_key is not None and source in ("gaze", "blink", "wink"):
                 current.selected = confirmed_key
                 current.response_seconds = now - current.started_at
             elif now - current.started_at > self.timeout_seconds:
@@ -582,8 +591,29 @@ def instructed_report(trials: list[Trial], keys: list[str]) -> dict[str, Any]:
 # ----------------------------------------------------------------------------- runner
 
 
+def wink_summary_lines(profile: WinkProfile, wink_count: int) -> list[tuple[str, bool | None]]:
+    """Calibration summary lines about winks."""
+    lines: list[tuple[str, bool | None]] = []
+    for eye, name in (("right", "derecho"), ("left", "izquierdo")):
+        detected = min(getattr(profile, f"{eye}_detected"), REQUESTED_WINKS)
+        if getattr(profile, f"{eye}_wink"):
+            text = (
+                f"Guiño ojo {name}: {detected} de {REQUESTED_WINKS} · elige con {wink_count} guiños"
+            )
+            lines.append((text, True))
+        else:
+            text = f"Guiño ojo {name}: no se reconoció · se usan parpadeos y mirada"
+            lines.append((text, None))
+    return lines
+
+
+def session_wink_path(directory: Path) -> Path:
+    return directory / "session-wink-profile.json"
+
+
 class Phase(StrEnum):
     CALIBRATING = "CALIBRATING"
+    WINKS = "WINKS"
     SUMMARY = "SUMMARY"
     ALIGNING = "ALIGNING"
     TEST = "TEST"
@@ -642,7 +672,15 @@ def run_board(
         "speak_gestures": 0,
         "urgent_gestures": 0,
         "selections": 0,
+        "wink_gestures": 0,
+        "wink_selections": 0,
     }
+    wink_profile: WinkProfile | None = None
+    if not communication.calibrate_at_start and calibration_dir is not None:
+        try:
+            wink_profile = load_wink_profile(session_wink_path(calibration_dir))
+        except (OSError, ValueError, KeyError):
+            wink_profile = None
     transient: dict[str, Any] = {"text": None, "until": 0.0}
     speech = create_speech_backend(
         enabled=bool(speech_settings.get("enabled", True)),
@@ -725,6 +763,10 @@ def run_board(
             summary_lines: list[tuple[str, bool | None]] = []
             summary_notice: str | None = None
             test: InstructedTest | None = None
+            wink_step: WinkCalibration | None = None
+            wink_eye: str | None = None
+            grid_ears: dict[str, list[float]] = {"left": [], "right": []}
+            summary_speech = ""
             last_realign = -1e9
 
             def install(mode: EyeMode, model: GazeEstimator | None) -> None:
@@ -733,6 +775,12 @@ def run_board(
                 session.set_calibration(model.eye_mode if model else None)
                 online.reset()
                 blinks.eye_mode = mode
+                blinks.winks = (
+                    wink_profile.wink_eyes
+                    if wink_profile is not None and mode is EyeMode.BOTH
+                    else ()
+                )
+                blinks.wink_commands = (communication.wink_select_count,)
                 blinks.reset()
 
             def start_reading_state() -> None:
@@ -798,18 +846,23 @@ def run_board(
                 # whatever the screen and even while paused or calibrating.
                 gesture = None
                 if fresh and last is not None:
+                    left_state = last.validity.left_eye_state
+                    right_state = last.validity.right_eye_state
+                    if wink_profile is not None:
+                        left_state, right_state = wink_profile.eye_states(
+                            last.observation.features, left_state, right_state
+                        )
                     gesture = blinks.update(
-                        now,
-                        last.validity.left_eye_state,
-                        last.validity.right_eye_state,
-                        tracking_ok=last.tracking_ok,
+                        now, left_state, right_state, tracking_ok=last.tracking_ok
                     )
                 elif not connected:
                     blinks.reset()
-                if gesture is not None and gesture.count == counts["urgent"]:
+                both = gesture is not None and gesture.eyes == BOTH
+                if gesture is not None and both and gesture.count == counts["urgent"]:
                     blink_stats["urgent_gestures"] += 1
                     if navigator is not None:
                         urgent_text = navigator.urgent().speak
+                        session.interrupt(now)
                     else:
                         urgent_text = session.layout.option("HELP").phrase
                     if urgent_text:
@@ -856,9 +909,6 @@ def run_board(
                         summary_lines = calibration_summary(fit_results, eye_mode)
                         if summary_notice:
                             summary_lines.append((summary_notice, None))
-                        summary_since = now
-                        calibration = None
-                        phase = Phase.SUMMARY
                         active = fit_results.get(eye_mode)
                         good = (
                             active is not None
@@ -866,10 +916,28 @@ def run_board(
                             and (active.model.metrics.get("quadrant_accuracy") or 0.0)
                             >= _GOOD_QUALITY
                         )
-                        speak_safely(
-                            speech,
-                            "Calibración lista." if good else "Calibración con poca precisión.",
+                        summary_speech = (
+                            "Calibración lista." if good else "Calibración con poca precisión."
                         )
+                        grid_ears = {
+                            eye: [
+                                float(sample.features[f"{eye}_eye_aspect_ratio"])
+                                for sample in calibration.samples
+                                if sample.grid and f"{eye}_eye_aspect_ratio" in sample.features
+                            ]
+                            for eye in ("left", "right")
+                        }
+                        calibration = None
+                        if communication.calibrate_winks and all(grid_ears.values()):
+                            wink_step = WinkCalibration(
+                                {eye: float(np.median(v)) for eye, v in grid_ears.items()}
+                            )
+                            wink_eye = None
+                            phase = Phase.WINKS
+                        else:
+                            summary_since = now
+                            phase = Phase.SUMMARY
+                            speak_safely(speech, summary_speech)
                         continue
                     signal_ok = last is not None and last.tracking_ok and last.any_eye_open
                     cv2.imshow(
@@ -880,6 +948,48 @@ def run_board(
                             snapshot,
                             high_contrast=communication.high_contrast,
                             signal_ok=signal_ok,
+                        ),
+                    )
+                    continue
+
+                # ------------------------------------------------------------ winks
+                if phase is Phase.WINKS and wink_step is not None:
+                    features = (
+                        last.observation.features
+                        if fresh and last is not None and last.tracking_ok
+                        else None
+                    )
+                    wink = wink_step.update(now, features)
+                    if wink.done:
+                        wink_profile = fit_wink_profile(wink_step.records, grid_ears)
+                        if calibration_dir is not None:
+                            save_wink_profile(wink_profile, session_wink_path(calibration_dir))
+                        install(eye_mode, models.get(eye_mode))  # applies the wink profile
+                        summary_lines.extend(
+                            wink_summary_lines(wink_profile, communication.wink_select_count)
+                        )
+                        if calibration_report is not None:
+                            calibration_report["winks"] = wink_profile.to_dict()
+                        wink_step = None
+                        summary_since = now
+                        phase = Phase.SUMMARY
+                        speak_safely(speech, summary_speech)
+                        continue
+                    if wink.eye != wink_eye:
+                        wink_eye = wink.eye
+                        side = "derecho" if wink.eye == "right" else "izquierdo"
+                        speak_safely(speech, f"Cierre solo el ojo {side}, tres veces.")
+                    cv2.imshow(
+                        _WINDOW_NAME,
+                        render_wink_step(
+                            width,
+                            height,
+                            wink.eye or "right",
+                            wink.detected,
+                            REQUESTED_WINKS,
+                            wink.seconds_left,
+                            high_contrast=communication.high_contrast,
+                            signal_ok=last is not None and last.tracking_ok,
                         ),
                     )
                     continue
@@ -974,18 +1084,29 @@ def run_board(
                     hold_dwell=blinks.count_in_progress > 0 or blinks.eyes_closed,
                 )
                 update: SessionUpdate = session.update(tick)
-                if gesture is not None and gesture.count == counts["toggle"]:
+                wink_select = (
+                    gesture is not None
+                    and gesture.eyes != BOTH
+                    and gesture.count == communication.wink_select_count
+                )
+                if wink_select:
+                    blink_stats["wink_gestures"] += 1
+                    wink_update = session.select_by_blink(now, source="wink")
+                    if wink_update is not None and update.confirmed is None:
+                        blink_stats["wink_selections"] += 1
+                        update = wink_update
+                elif gesture is not None and both and gesture.count == counts["toggle"]:
                     blink_stats["toggle_gestures"] += 1
                     if communication.blink_toggle and phase is Phase.BOARD:
                         session.toggle_pause()
                         speak_safely(speech, "Pausa." if session.paused else "Empiezo a leer.")
-                elif gesture is not None and gesture.count == counts["select"]:
+                elif gesture is not None and both and gesture.count == counts["select"]:
                     blink_stats["select_gestures"] += 1
                     blink_update = session.select_by_blink(now)
                     if blink_update is not None and update.confirmed is None:
                         blink_stats["selections"] += 1
                         update = blink_update
-                elif gesture is not None and gesture.count == counts["speak"]:
+                elif gesture is not None and both and gesture.count == counts["speak"]:
                     blink_stats["speak_gestures"] += 1
                     if phase is Phase.BOARD:
                         to_say = (
@@ -993,6 +1114,8 @@ def run_board(
                             if navigator is not None
                             else session.message
                         )
+                        if navigator is not None and to_say:
+                            session.interrupt(now)
                         if to_say:
                             speech_ok = speak_safely(speech, to_say)
                             speech_failures += 0 if speech_ok else 1
@@ -1025,8 +1148,10 @@ def run_board(
                     continue
                 elif key == 8 and navigator is not None and phase is Phase.BOARD:
                     navigator.back()  # BACKSPACE: one level up
+                    session.interrupt(now)
                 elif key in (ord("h"), ord("H")) and navigator is not None:
                     navigator.home()
+                    session.interrupt(now)
                 elif key in (ord("c"), ord("C")):
                     session.clear_message()
                     if navigator is not None:
@@ -1093,7 +1218,7 @@ def run_board(
                     flash, flash_until = update.confirmed, now + 0.8
                     if (
                         phase is Phase.BOARD
-                        and update.confirmed_source in ("gaze", "blink")
+                        and update.confirmed_source in ("gaze", "blink", "wink")
                         and communication.implicit_recalibration
                     ):
                         points = [
@@ -1182,6 +1307,10 @@ def run_board(
                     blink_count=blinks.count_in_progress,
                     blink_select_count=counts["select"] if session.blink_selection else 0,
                     blink_toggle_count=counts["toggle"],
+                    wink_count=communication.wink_select_count
+                    if session.blink_selection and blinks.winks
+                    else 0,
+                    blink_kind=blinks.kind_in_progress,
                 )
                 cv2.imshow(_WINDOW_NAME, canvas)
     finally:

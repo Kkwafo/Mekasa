@@ -1,51 +1,69 @@
-"""Deliberate blink sequences as commands (by default 3 = select, 4 = start/stop reading,
-5 = say the message, 7 = urgent call; see ``config/communication.toml``).
+"""Deliberate blink and wink sequences as commands.
 
-A *blink* is a closure of the required eyes (both in BOTH mode, the active eye in LEFT/RIGHT
-mode) lasting between ``min_closed_seconds`` and ``max_closed_seconds``. Blinks separated by
-open intervals of at most ``max_gap_seconds`` form a *sequence*. A sequence is reported only
-once it is over (eyes open for longer than ``max_gap_seconds``), so 3 can be told apart from
-4 or 5. Anything else is ignored on purpose:
+Both eyes (defaults in ``config/communication.toml``): 3 = select, 4 = start/stop reading,
+5 = say the message, 7 = urgent call. One eye (*wink*, only after the calibration confirmed the
+person can wink with that eye): 3 = select.
 
-* a single blink (spontaneous blinking, ~15-20 per minute at rest);
-* any count that is not a configured command;
+A *closure* lasts between ``min_closed_seconds`` and ``max_closed_seconds``. Its kind is the
+majority pattern of its frames: both eyes closed, only the left or only the right. Closures of
+the same kind separated by open intervals of at most ``max_gap_seconds`` form a *sequence*,
+reported only once it is over, so 3 can be told apart from 4 or 5. A closure of a different
+kind starts a new sequence. Ignored on purpose:
+
+* a single blink (spontaneous blinking, ~15-20 per minute at rest, is bilateral; a wink almost
+  never happens by accident, which is why winks are a good selection gesture);
+* any count that is not a configured command for that kind;
 * a long closure (resting the eyes), which also cancels a sequence in progress;
 * losing the face, which cancels a sequence in progress.
 
-All durations are engineering hypotheses, configurable in ``config/communication.toml``;
-spontaneous double blinks do occur, which is why a selection additionally needs a stable gaze
-on one option right before the blinks (see ``CommunicationSession.select_by_blink``).
+All durations are engineering hypotheses. A selection additionally needs a stable gaze on one
+option right before the gesture (see ``CommunicationSession.select_by_blink``).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, field
 
 from mekasa_gaze.core.domain import EyeState
 from mekasa_gaze.core.eye_mode import EyeMode
 
 DEFAULT_COMMANDS = (3, 4, 5, 7)
+DEFAULT_WINK_COMMANDS = (3,)
+BOTH = "both"
+LEFT = "left"
+RIGHT = "right"
+_OPEN = "open"
 
 
 @dataclass(frozen=True, slots=True)
 class BlinkGesture:
-    """A completed sequence of ``count`` deliberate blinks."""
+    """A completed sequence of ``count`` deliberate closures of ``eyes`` (both/left/right)."""
 
     count: int
     started_at: float
     ended_at: float
+    eyes: str = BOTH
 
 
 @dataclass(slots=True)
 class BlinkDetector:
-    """Clock-injected detector fed with per-frame eye states."""
+    """Clock-injected detector fed with per-frame eye states.
+
+    ``winks`` lists the eyes ("left", "right") whose winks are recognized; in single-eye modes
+    winks never apply (the other eye is not usable).
+    """
 
     eye_mode: EyeMode = EyeMode.BOTH
     min_closed_seconds: float = 0.08
     max_closed_seconds: float = 0.8
     max_gap_seconds: float = 0.8
     commands: tuple[int, ...] = DEFAULT_COMMANDS
+    winks: tuple[str, ...] = ()
+    wink_commands: tuple[int, ...] = DEFAULT_WINK_COMMANDS
     _closed_since: float | None = None
+    _votes: Counter[str] = field(default_factory=Counter)
+    _kind: str | None = None
     _count: int = 0
     _sequence_start: float | None = None
     _last_blink_end: float | None = None
@@ -55,8 +73,13 @@ class BlinkDetector:
 
     @property
     def count_in_progress(self) -> int:
-        """Blinks counted in the sequence that is still open (for on-screen feedback)."""
+        """Closures counted in the sequence that is still open (for on-screen feedback)."""
         return self._count
+
+    @property
+    def kind_in_progress(self) -> str | None:
+        """Kind of the sequence in progress: both, left or right."""
+        return self._kind if self._count else None
 
     @property
     def eyes_closed(self) -> bool:
@@ -71,9 +94,11 @@ class BlinkDetector:
 
     def reset(self) -> None:
         self._closed_since = None
-        self._count = 0
-        self._sequence_start = None
-        self._last_blink_end = None
+        self._votes.clear()
+        self._clear_sequence()
+
+    def _clear_sequence(self) -> None:
+        self._kind, self._count, self._sequence_start, self._last_blink_end = None, 0, None, None
 
     def update(
         self,
@@ -87,28 +112,35 @@ class BlinkDetector:
         if not tracking_ok or left is None or right is None:
             self.reset()
             return None
-        closed = self._closed(left, right)
-        if closed is None:  # eye geometry unusable (not open, not clearly closed)
+        pattern = self._pattern(left, right)
+        if pattern is None:  # eye geometry unusable (not open, not clearly closed)
             return None
-        if closed:
+        if pattern != _OPEN:
             if self._closed_since is None:
                 self._closed_since = now
                 self._long_closure = False
-            elif not self._long_closure and now - self._closed_since > self.max_closed_seconds:
+                self._votes.clear()
+            self._votes[pattern] += 1
+            if not self._long_closure and now - self._closed_since > self.max_closed_seconds:
                 # Resting the eyes: not a command, and it cancels a sequence in progress.
                 self._long_closure = True
                 self._ignored_long_closures += 1
                 if self._count:
                     self._ignored_sequences += 1
-                self._count, self._sequence_start, self._last_blink_end = 0, None, None
+                self._clear_sequence()
             return None
         if self._closed_since is not None:
             duration = now - self._closed_since
             started = self._closed_since
+            kind = self._votes.most_common(1)[0][0] if self._votes else BOTH
             self._closed_since = None
+            self._votes.clear()
             if self.min_closed_seconds <= duration <= self.max_closed_seconds:
+                if self._count and kind != self._kind:  # another kind: a new sequence
+                    self._ignored_sequences += 1
+                    self._clear_sequence()
                 if self._count == 0:
-                    self._sequence_start = started
+                    self._sequence_start, self._kind = started, kind
                 self._count += 1
                 self._last_blink_end = now
             return None
@@ -116,22 +148,37 @@ class BlinkDetector:
             return None
         if now - self._last_blink_end <= self.max_gap_seconds:
             return None
-        count, started_at = self._count, self._sequence_start or now
-        self._count, self._sequence_start, self._last_blink_end = 0, None, None
-        if count not in self.commands:
+        count, kind, started_at = self._count, self._kind or BOTH, self._sequence_start or now
+        self._clear_sequence()
+        allowed = self.commands if kind == BOTH else self.wink_commands
+        if count not in allowed:
             self._ignored_sequences += 1
             return None
-        return BlinkGesture(count, started_at, now)
+        return BlinkGesture(count, started_at, now, kind)
 
-    def _closed(self, left: EyeState, right: EyeState) -> bool | None:
-        states = {EyeMode.BOTH: (left, right), EyeMode.LEFT: (left,), EyeMode.RIGHT: (right,)}[
-            self.eye_mode
-        ]
-        if all(state is EyeState.CLOSED for state in states):
-            return True
-        if all(state is EyeState.OPEN for state in states):
-            return False
+    def _pattern(self, left: EyeState, right: EyeState) -> str | None:
+        if self.eye_mode is not EyeMode.BOTH:
+            state = left if self.eye_mode is EyeMode.LEFT else right
+            if state is EyeState.CLOSED:
+                return BOTH
+            return _OPEN if state is EyeState.OPEN else None
+        if left is EyeState.CLOSED and right is EyeState.CLOSED:
+            return BOTH
+        if left is EyeState.OPEN and right is EyeState.OPEN:
+            return _OPEN
+        if LEFT in self.winks and left is EyeState.CLOSED and right is EyeState.OPEN:
+            return LEFT
+        if RIGHT in self.winks and right is EyeState.CLOSED and left is EyeState.OPEN:
+            return RIGHT
         return None
 
 
-__all__ = ["DEFAULT_COMMANDS", "BlinkDetector", "BlinkGesture"]
+__all__ = [
+    "BOTH",
+    "DEFAULT_COMMANDS",
+    "DEFAULT_WINK_COMMANDS",
+    "LEFT",
+    "RIGHT",
+    "BlinkDetector",
+    "BlinkGesture",
+]

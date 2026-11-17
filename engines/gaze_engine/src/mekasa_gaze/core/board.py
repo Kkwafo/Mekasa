@@ -158,6 +158,10 @@ class CommunicationConfig:
     blink_toggle_count: int = 4
     blink_speak_count: int = 5
     blink_urgent_count: int = 7
+    # Winks (one eye): the calibration asks for right and left winks; an eye whose winks are
+    # recognized can choose the armed option with wink_select_count winks.
+    calibrate_winks: bool = True
+    wink_select_count: int = 3
     blink_min_focus_seconds: float = 0.4
     blink_selection_window_seconds: float = 3.0
     blink_min_closed_seconds: float = 0.08
@@ -195,6 +199,8 @@ class CommunicationConfig:
             2 <= count <= 9 for count in counts.values()
         ):
             raise ValueError("blink gesture counts must be distinct and within [2, 9]")
+        if not 2 <= self.wink_select_count <= 9:
+            raise ValueError("wink_select_count must be within [2, 9]")
         if not 0.1 <= self.blink_min_focus_seconds <= 3.0:
             raise ValueError("blink_min_focus_seconds must be within [0.1, 3]")
         if not 0.5 <= self.blink_selection_window_seconds <= 10.0:
@@ -277,6 +283,8 @@ class CommunicationConfig:
             combined_dwell_seconds=float(
                 section.get("combined_dwell_seconds", defaults.combined_dwell_seconds)
             ),
+            calibrate_winks=bool(section.get("calibrate_winks", defaults.calibrate_winks)),
+            wink_select_count=int(section.get("wink_select_count", defaults.wink_select_count)),
             blink_select_count=int(section.get("blink_select_count", defaults.blink_select_count)),
             blink_toggle_count=int(section.get("blink_toggle_count", defaults.blink_toggle_count)),
             blink_speak_count=int(section.get("blink_speak_count", defaults.blink_speak_count)),

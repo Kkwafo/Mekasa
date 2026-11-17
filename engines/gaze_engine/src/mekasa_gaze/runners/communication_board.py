@@ -102,6 +102,7 @@ from mekasa_gaze.ui.board_view import (
     render_alignment,
     render_board,
     render_calibration,
+    render_countdown,
     render_summary,
     render_wink_step,
     screen_to_board,
@@ -611,7 +612,43 @@ def session_wink_path(directory: Path) -> Path:
     return directory / "session-wink-profile.json"
 
 
+def intro_script(communication: CommunicationConfig) -> tuple[str, list[str]]:
+    """Brief spoken explanation and the lines shown while it is spoken."""
+    counts = communication.blink_counts
+    dwell = communication.effective_dwell_seconds
+    seconds = f"{dwell:g}".replace(".", ",")
+    look = f"mire una opción {seconds} segundos"
+    blinks = f"parpadee {counts['select']} veces y después mírela"
+    if communication.selection_mode == "dwell":
+        choose = f"Para elegir, {look}."
+        choose_line = f"Elegir: mirar una opción {seconds} s"
+    elif communication.selection_mode == "blink":
+        choose = f"Para elegir, {blinks}."
+        choose_line = f"Elegir: {counts['select']} parpadeos y después mirar la opción"
+    else:
+        choose = f"Para elegir, {look}, o {blinks}."
+        choose_line = f"Elegir: mirar {seconds} s, o {counts['select']} parpadeos y después mirar"
+    spoken = (
+        "Hola. Primero vamos a calibrar: mire cada punto hasta que se complete el círculo. "
+        f"{choose} {counts['urgent']} parpadeos piden ayuda."
+    )
+    lines = [
+        "Calibrar: mirar cada punto hasta que se complete el círculo",
+        choose_line,
+        f"{counts['toggle']} parpadeos: empezar o parar · {counts['speak']} parpadeos: decir",
+        f"{counts['urgent']} parpadeos o más: pedir ayuda urgente",
+    ]
+    return spoken, lines
+
+
+def speech_seconds(text: str) -> float:
+    """Rough duration of local Spanish TTS at the default rate (~2.5 words per second)."""
+    return 0.8 + len(text.split()) / 2.5
+
+
 class Phase(StrEnum):
+    INTRO = "INTRO"
+    COUNTDOWN = "COUNTDOWN"
     CALIBRATING = "CALIBRATING"
     WINKS = "WINKS"
     SUMMARY = "SUMMARY"
@@ -798,13 +835,14 @@ def run_board(
                 else:
                     session.resume()
 
-            def start_calibration() -> CalibrationProcedure:
+            def start_calibration(*, announce: bool = True) -> CalibrationProcedure:
                 install(eye_mode, None)
                 session.pause()
-                speak_safely(
-                    speech,
-                    "Calibración. Mire cada punto hasta que se complete el círculo.",
-                )
+                if announce:
+                    speak_safely(
+                        speech,
+                        "Calibración. Mire cada punto hasta que se complete el círculo.",
+                    )
                 return CalibrationProcedure(calibration_steps(area))
 
             def begin_alignment(reason: str | None = None) -> AlignmentProcedure | None:
@@ -829,7 +867,14 @@ def run_board(
                     session.resume()
 
             phase = Phase.BOARD
-            if communication.calibrate_at_start:
+            intro_text, intro_lines = intro_script(communication)
+            phase_since = perf_counter()
+            if communication.calibrate_at_start and communication.intro:
+                install(eye_mode, None)
+                session.pause()
+                speak_safely(speech, intro_text)
+                phase = Phase.INTRO
+            elif communication.calibrate_at_start:
                 calibration = start_calibration()
                 phase = Phase.CALIBRATING
             else:
@@ -882,6 +927,41 @@ def run_board(
                     if communication.urgent_alarm:
                         play_alarm()
                     gesture = None
+
+                # ------------------------------------------------------------ intro
+                if phase is Phase.INTRO:
+                    skip = key in (13, 10, ord(" "))
+                    if skip or now - phase_since >= speech_seconds(intro_text):
+                        phase, phase_since = Phase.COUNTDOWN, now
+                        continue
+                    cv2.imshow(
+                        _WINDOW_NAME,
+                        render_summary(
+                            width,
+                            height,
+                            "Cómo funciona",
+                            [(line, None) for line in intro_lines],
+                            high_contrast=communication.high_contrast,
+                            footer="ENTER = saltar · ESC = salir",
+                        ),
+                    )
+                    continue
+                if phase is Phase.COUNTDOWN:
+                    left = communication.countdown_seconds - (now - phase_since)
+                    if left <= 0 or key in (13, 10, ord(" ")):
+                        calibration = start_calibration(announce=False)
+                        phase = Phase.CALIBRATING
+                        continue
+                    cv2.imshow(
+                        _WINDOW_NAME,
+                        render_countdown(
+                            width,
+                            height,
+                            int(np.ceil(left)),
+                            high_contrast=communication.high_contrast,
+                        ),
+                    )
+                    continue
 
                 # ------------------------------------------------------------ calibration
                 if phase is Phase.CALIBRATING and calibration is not None:

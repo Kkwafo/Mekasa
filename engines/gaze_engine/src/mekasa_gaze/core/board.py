@@ -139,6 +139,9 @@ class CommunicationConfig:
     phrases: tuple[tuple[str, str, str], ...] = ()
     # Precision features (see config/communication.toml for the evidence behind each).
     calibrate_at_start: bool = True
+    # Before calibrating: a brief spoken explanation, then an on-screen countdown.
+    intro: bool = True
+    countdown_seconds: int = 3
     auto_realign: bool = True
     implicit_recalibration: bool = True
     distance_compensation: bool = True
@@ -196,6 +199,8 @@ class CommunicationConfig:
             raise ValueError("confirmation_window_seconds must be positive")
         if not (0.0 <= self.camera_position[0] <= 1.0 and -0.5 <= self.camera_position[1] <= 1.5):
             raise ValueError("camera_position must be a screen-normalized point near the screen")
+        if not 0 <= self.countdown_seconds <= 10:
+            raise ValueError("countdown_seconds must be within [0, 10]")
         if self.interface not in ("conversation", "simple"):
             raise ValueError("interface must be 'conversation' or 'simple'")
         if self.gender not in ("m", "f"):
@@ -290,6 +295,8 @@ class CommunicationConfig:
             high_contrast=bool(section.get("high_contrast", defaults.high_contrast)),
             phrases=phrases,
             calibrate_at_start=bool(section.get("calibrate_at_start", defaults.calibrate_at_start)),
+            intro=bool(section.get("intro", defaults.intro)),
+            countdown_seconds=int(section.get("countdown_seconds", defaults.countdown_seconds)),
             auto_realign=bool(section.get("auto_realign", defaults.auto_realign)),
             implicit_recalibration=bool(
                 section.get("implicit_recalibration", defaults.implicit_recalibration)

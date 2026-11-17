@@ -515,6 +515,39 @@ def render_wink_step(
     return canvas
 
 
+def render_countdown(
+    width: int, height: int, seconds: int, *, high_contrast: bool = True
+) -> npt.NDArray[np.uint8]:
+    """Big countdown before the calibration starts."""
+    palette = HIGH_CONTRAST if high_contrast else SOFT
+    canvas = np.empty((height, width, 3), dtype=np.uint8)
+    canvas[:] = palette.background
+    draw_text(
+        canvas,
+        "La calibración empieza en",
+        (0, int(height * 0.12), width, int(height * 0.28)),
+        palette.status_text,
+        max_size=int(height * 0.07),
+        bold=False,
+    )
+    draw_text(
+        canvas,
+        str(max(1, seconds)),
+        (0, int(height * 0.3), width, int(height * 0.8)),
+        palette.focus,
+        max_size=int(height * 0.45),
+    )
+    draw_text(
+        canvas,
+        "Mire cada punto hasta que se complete el círculo",
+        (0, int(height * 0.82), width, int(height * 0.94)),
+        palette.muted,
+        max_size=int(height * 0.05),
+        bold=False,
+    )
+    return canvas
+
+
 def render_summary(
     width: int,
     height: int,
@@ -777,6 +810,7 @@ __all__ = [
     "render_alignment",
     "render_board",
     "render_calibration",
+    "render_countdown",
     "render_summary",
     "render_wink_step",
     "screen_to_board",

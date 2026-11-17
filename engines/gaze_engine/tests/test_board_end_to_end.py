@@ -213,6 +213,14 @@ def test_board_session_calibrates_tests_and_adapts(
         return wrap_original(*args, **kwargs)
 
     monkeypatch.setattr(board, "render_board", render_board_hook)
+    countdown: list[int] = []
+    original_countdown = board.render_countdown
+
+    def countdown_hook(*args: Any, **kwargs: Any) -> Any:
+        countdown.append(args[2])
+        return original_countdown(*args, **kwargs)
+
+    monkeypatch.setattr(board, "render_countdown", countdown_hook)
 
     report = board.run_board(
         communication=communication,
@@ -231,7 +239,12 @@ def test_board_session_calibrates_tests_and_adapts(
     assert both["kind"] in ("appearance", "hybrid"), both
     assert both["metrics"]["quadrant_accuracy"] >= 0.9
     assert (tmp_path / "session-gaze-model-both.json").exists()
-    assert world.summaries[:2] == ["Resultado de la calibración", "Resultado de la prueba"]
+    results = [title for title in world.summaries if title != "Cómo funciona"]
+    assert world.summaries[0] == "Cómo funciona"  # brief explanation first
+    assert results[:2] == ["Resultado de la calibración", "Resultado de la prueba"]
+    assert speech.spoken[0].startswith("Hola. Primero vamos a calibrar")
+    assert sorted(set(countdown)) == [1, 2, 3]
+    assert not any(text.startswith("Calibración. Mire") for text in speech.spoken)
 
     test = report["test"]
     assert test["trials"] == 8
@@ -593,8 +606,9 @@ def test_calibration_learns_winks_and_three_right_winks_choose(
     )
     winks_report = report["calibration"]["winks"]
     assert winks_report["right_wink"] and not winks_report["left_wink"], winks_report
-    assert any("Guiño ojo derecho: 3 de 3" in line for line in summaries[0]), summaries
-    assert any("izquierdo: no se reconoció" in line for line in summaries[0])
+    result = next(lines for lines in summaries if any("Guiño" in line for line in lines))
+    assert any("Guiño ojo derecho: 3 de 3" in line for line in result), summaries
+    assert any("izquierdo: no se reconoció" in line for line in result)
     assert (tmp_path / "session-wink-profile.json").exists()
     assert "Cierre solo el ojo derecho, tres veces." in speech.spoken
     sources = report["measurement"]["session"]["confirmations_by_source"]

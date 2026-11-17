@@ -32,6 +32,10 @@ high_contrast = true
 # calibrates at every start (~35 s). Set false to reuse the last calibration + 4-point
 # alignment (faster, less precise).
 calibrate_at_start = true
+# Before calibrating: a brief spoken explanation of how to use the board, then a countdown.
+# ENTER or SPACE skips it.
+intro = true
+countdown_seconds = 3
 # Re-run the 4-point alignment automatically when the face stays clearly closer, farther,
 # shifted or turned relative to calibration (engineering hypothesis).
 auto_realign = true

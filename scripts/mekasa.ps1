@@ -14,8 +14,8 @@
     .\scripts\mekasa.ps1 tablero       # calibra (~35 s) y abre el tablero de conversación
     .\scripts\mekasa.ps1 tablero -Genero F      # frases en femenino ("Estoy cansada")
     .\scripts\mekasa.ps1 tablero -Simple        # tablero simple SÍ / NO / AGUA / AYUDA
-    #   Por defecto: mirar 3 s o 3 parpadeos eligen; 4 parpadeos empiezan/paran;
-    #   5 parpadeos dicen el mensaje; 7 parpadeos llaman a urgencias.
+    #   Por defecto: mirar 3 s elige, o 3 parpadeos (o guiños) y DESPUÉS mirar la opción 1 s;
+    #   4 parpadeos empiezan/paran; 5 dicen el mensaje; 7 o más llaman a urgencias (y repiten).
     .\scripts\mekasa.ps1 tablero -Parpadeo      # solo parpadeos (nunca por tiempo)
     .\scripts\mekasa.ps1 tablero -SoloTiempo    # solo mirada (0,9 s), sin elegir por parpadeo
     .\scripts\mekasa.ps1 tablero -Dwell 2       # mirar 2 s en lugar de 3
@@ -88,7 +88,7 @@ function Get-BoardArguments {
     return $arguments
 }
 
-$keys = "Parpadeos seguidos: 3 elegir · 4 empezar/parar · 5 decir · 7 urgencia. Teclas: 1-4 elegir · RETROCESO volver · H inicio · ESPACIO pausa · A reajustar · K recalibrar · M cambiar ojo · G ver mirada · C borrar · ESC salir"
+$keys = "Parpadeos seguidos: 3 y luego mirar = elegir · 4 empezar/parar · 5 decir · 7+ urgencia. Teclas: 1-4 elegir · RETROCESO volver · H inicio · ESPACIO pausa · A reajustar · K recalibrar · M cambiar ojo · G ver mirada · C borrar · ESC salir"
 
 switch ($Accion) {
     "instalar" {

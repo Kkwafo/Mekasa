@@ -324,3 +324,52 @@ def test_interrupt_resets_dwell_when_the_screen_changes_under_the_gaze() -> None
     assert not any(update.confirmed for update in updates)
     assert updates[0].state is SessionState.COOLDOWN
     assert updates[-1].progress < 0.3  # the 3 s look restarted from zero after the cooldown
+
+
+# ---------------------------------------------------------------- blink first, look after
+
+
+def test_urgent_fires_at_the_seventh_blink_and_repeats_while_blinking_continues() -> None:
+    feed = Feed(BlinkDetector(commands=(3, 4, 5), urgent_count=7, urgent_repeat_seconds=2.5))
+    feed.run(0.5, OPEN)
+    feed.blinks(7, closed=0.15, gap=0.25)
+    feed.run(1 / FPS, OPEN)
+    assert [(g.count, g.urgent) for g in feed.gestures] == [(7, True)]  # no waiting
+    feed.run(0.25, OPEN)
+    feed.blinks(8, closed=0.15, gap=0.25)  # keeps blinking (same sequence)
+    feed.run(1.5, OPEN)
+    assert [(g.count, g.urgent) for g in feed.gestures] == [(7, True), (14, True)]
+
+
+def test_blink_then_look_chooses_what_is_looked_at_after_the_blinks() -> None:
+    session, clock = _combined()
+    clock.run(YES_POINT, 1.0)
+    clock.run((0.75, 0.75), 0.6)  # the estimate jumped elsewhere during the blinks
+    assert session.start_selection_intent(clock.t)
+    updates = clock.run((0.75, 0.25), 0.9)  # looks at NO
+    assert updates[-1].state is SessionState.SELECTING and not updates[-1].confirmed
+    updates = clock.run((0.75, 0.25), 0.3)
+    confirmed = [u.confirmed.key for u in updates if u.confirmed]
+    assert confirmed == ["NO"]
+    assert [u.confirmed_source for u in updates if u.confirmed] == ["blink"]
+
+
+def test_selection_window_expires_and_survives_a_blink() -> None:
+    session, clock = _combined()
+    clock.run(GAP, 1.0)
+    assert session.start_selection_intent(clock.t, source="wink")
+    clock.run(GAP, 0.5)
+    clock.run(None, 0.3, eyes=EyeState.CLOSED)  # another blink: the window stays open
+    assert session.selecting
+    clock.run(GAP, 5.0)  # nothing looked at in time
+    assert not session.selecting and session.stats.intents_expired == 1
+
+
+def test_selection_window_lifts_the_exit_rule_and_dwell_mode_rejects_it() -> None:
+    session, clock = _combined()
+    clock.run(YES_POINT, 3.8)  # dwell choice; the exit rule now blocks YES
+    assert session.start_selection_intent(clock.t)
+    updates = clock.run(YES_POINT, 1.5)
+    assert [u.confirmed.key for u in updates if u.confirmed] == ["YES"]
+    dwell = CommunicationSession(CommunicationConfig(), calibration_mode=EyeMode.BOTH)
+    assert not dwell.start_selection_intent(1.0)

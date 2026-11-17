@@ -163,6 +163,7 @@ def status_text(
     blink_select_count: int = 0,
     blink_toggle_count: int = 4,
     wink_count: int = 0,
+    blink_first: bool = False,
 ) -> str:
     """Short Spanish status line for the person and their support.
 
@@ -186,10 +187,17 @@ def status_text(
         return _ABSTAIN_TEXT.get(reason, "Sin señal")
     if state is SessionState.RECOVERING:
         return "Recuperando señal…"
+    if state is SessionState.SELECTING:
+        if update.focused is not None:
+            label = (labels or {}).get(update.focused.key, update.focused.label)
+            return f"Eligiendo {label.rstrip(' \u203a')}…"
+        return "Ahora mire la opción que quiere elegir"
     if state is SessionState.FOCUSING and update.focused is not None:
         label = (labels or {}).get(update.focused.key, update.focused.label)
         name = label.rstrip(" \u203a")
-        armed = update.armed is not None and update.armed.key == update.focused.key
+        armed = (
+            not blink_first and update.armed is not None and update.armed.key == update.focused.key
+        )
         if gesture and armed and blink_mode:
             return f"Para elegir {name}: {gesture}"
         if gesture and armed:
@@ -201,6 +209,8 @@ def status_text(
     if state is SessionState.COOLDOWN:
         return "Confirmado"
     if state is SessionState.AWAITING_EXIT:
+        if blink_first and gesture:
+            return f"Confirmado · aparte la mirada, o {gesture} y mire"
         if blink_select_count and update.armed is not None:
             label = (labels or {}).get(update.armed.key, update.armed.label)
             name = label.rstrip(" \u203a")
@@ -208,6 +218,10 @@ def status_text(
         return "Confirmado · aparte la mirada para elegir otra vez"
     if notice:
         return notice
+    if location and blink_first and gesture and blink_mode:
+        return f"{location} · {gesture} y después mire la opción"
+    if location and blink_first and gesture:
+        return f"{location} · mire una opción, o {gesture} y después mírela"
     if location and blink_mode:
         return f"{location} · mire una opción y {gesture}"
     if location:
@@ -262,6 +276,7 @@ def render_board(
     blink_toggle_count: int = 4,
     wink_count: int = 0,
     blink_kind: str | None = None,
+    blink_first: bool = False,
 ) -> npt.NDArray[np.uint8]:
     """Render one frame of the board.
 
@@ -289,6 +304,7 @@ def render_board(
         blink_toggle_count: Blinks that start/stop reading.
         wink_count: One-eye winks that choose the armed option (0 = winks off).
         blink_kind: Kind of the sequence being counted (both, left, right).
+        blink_first: Blink/wink first, then look (no "ready" hint on the cells).
     """
     labels = (
         {option.key: cell[0] for option, cell in zip(layout.options, cells, strict=False)}
@@ -324,10 +340,11 @@ def render_board(
             blink_select_count=blink_select_count,
             blink_toggle_count=blink_toggle_count,
             wink_count=wink_count,
+            blink_first=blink_first,
         ),
         (margin_px, 0, width - indicators_w, status_h),
         palette.focus
-        if blink_count
+        if blink_count or update.state is SessionState.SELECTING
         else palette.warning
         if (lost or (notice and update.state is SessionState.READY))
         else palette.status_text,
@@ -342,7 +359,7 @@ def render_board(
             canvas, (margin_px, status_h - 6), (margin_px + bar_w, status_h - 2), palette.good, -1
         )
 
-    armed_hint = select_gesture_text(blink_select_count, wink_count)
+    armed_hint = "" if blink_first else select_gesture_text(blink_select_count, wink_count)
     for index, option in enumerate(layout.options):
         label, kind = cells[index] if cells and index < len(cells) else (option.label, "")
         _draw_option(canvas, option, update, area, palette, flash, label, kind, armed_hint)

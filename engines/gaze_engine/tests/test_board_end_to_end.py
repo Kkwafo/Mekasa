@@ -414,8 +414,10 @@ def test_blink_mode_starts_selects_and_stops_with_blinks_only(
 def test_combined_mode_dwell_or_blinks_and_blink_shortcuts(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Default config (combined): HABLAR by a 3 s look, NECESITO by 3 blinks, COMER Y BEBER by
-    look, AGUA by blinks; 5 blinks say the message; 7 blinks raise the urgent call."""
+    """Default config (combined, blink first): HABLAR by a 3 s look; 3 blinks (gaze wandering)
+    then a short look choose NECESITO; COMER Y BEBER by look; AGUA by blinks + look; 5 blinks
+    say the message; the 7th blink raises the urgent call at once and 3 s more blinking
+    repeats it."""
     world = World()
     speech = FakeSpeech()
     _install_fakes(monkeypatch, world, speech)
@@ -431,26 +433,26 @@ def test_combined_mode_dwell_or_blinks_and_blink_shortcuts(
     communication = CommunicationConfig.load(ROOT / "config" / "communication.toml")
     assert communication.selection_mode == "combined"
 
-    def blinks(count: int, label: str | None = None) -> list[tuple[float, str | None, bool]]:
+    def blinks(count: int, last_open: float = 0.3) -> list[tuple[float, str | None, bool]]:
         actions: list[tuple[float, str | None, bool]] = []
         for index in range(count):
-            actions.append((0.2, label, True))
-            actions.append((0.3 if index < count - 1 else 1.5, label, False))
+            actions.append((0.2, None, True))  # gaze wanders while blinking
+            actions.append((0.3 if index < count - 1 else last_open, None, False))
         return actions
 
     sep = "\u203a"
     timeline = [
         (1.0, None, False),
         (3.8, "HABLAR", False),  # chosen by the 3 s look
-        (1.0, f"NECESITO {sep}", False),
-        *blinks(3, f"NECESITO {sep}"),  # chosen by 3 blinks
+        *blinks(3),
+        (2.5, f"NECESITO {sep}", False),  # ...then looked at: chosen
         (3.8, f"COMER Y BEBER {sep}", False),
-        (1.0, "AGUA", False),
-        *blinks(3, "AGUA"),
+        *blinks(3),
+        (2.5, "AGUA", False),
         (1.0, None, False),
-        *blinks(5),  # say it now
+        *blinks(5, last_open=1.5),  # say it now
         (1.0, None, False),
-        *blinks(7),  # urgent call
+        *blinks(14, last_open=1.5),  # the 7th blink calls; still blinking 2.5 s later: again
         (1.0, None, False),
     ]
     ends = np.cumsum([duration for duration, _, _ in timeline])
@@ -486,25 +488,23 @@ def test_combined_mode_dwell_or_blinks_and_blink_shortcuts(
         calibration_dir=tmp_path,
     )
     spoken = speech.spoken
-    assert "Necesito agua." in spoken, (
-        spoken,
-        report["measurement"]["session"],
-        report["measurement"]["blinks"],
-        report["measurement"]["conversation"],
-    )
-    assert spoken[-1] == "¡Necesito ayuda urgente! Vengan, por favor."
-    assert alarms
+    assert "Necesito agua." in spoken, (spoken, report["measurement"]["session"])
+    urgent = "¡Necesito ayuda urgente! Vengan, por favor."
+    assert spoken[-2:] == [urgent, urgent], spoken
+    assert len(alarms) == 2
     sources = report["measurement"]["session"]["confirmations_by_source"]
     assert sources == {"blink": 2, "gaze": 2}, sources
     blink_stats = report["measurement"]["blinks"]
-    assert blink_stats["speak_gestures"] == 1 and blink_stats["urgent_gestures"] == 1
+    assert blink_stats["speak_gestures"] == 1 and blink_stats["urgent_gestures"] == 2
+    assert report["measurement"]["session"]["intents_started"] == 2
 
 
 def test_calibration_learns_winks_and_three_right_winks_choose(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """The wink step finds that the right eye can wink and the left cannot; on the board three
-    right winks choose HABLAR, while left 'winks' are ignored and the 3 s look chooses."""
+    right winks and then a look choose HABLAR, while left 'winks' are ignored and the 3 s look
+    chooses NECESITO."""
     world = World()
     speech = FakeSpeech()
     _install_fakes(monkeypatch, world, speech)
@@ -540,18 +540,18 @@ def test_calibration_learns_winks_and_three_right_winks_choose(
             summaries.append(lines)
         return original_summary(*args, **kwargs)
 
-    def winks(eye: str, label: str) -> list[tuple[float, str, tuple[str, ...]]]:
-        actions: list[tuple[float, str, tuple[str, ...]]] = []
-        for index in range(3):
+    def winks(eye: str, label: str | None) -> list[tuple[float, str | None, tuple[str, ...]]]:
+        actions: list[tuple[float, str | None, tuple[str, ...]]] = []
+        for _ in range(3):
             actions.append((0.2, label, (eye,)))
-            actions.append((0.3 if index < 2 else 1.5, label, ()))
+            actions.append((0.3, label, ()))
         return actions
 
     sep = "\u203a"
     timeline = [
         (1.0, None, ()),
-        (1.0, "HABLAR", ()),
-        *winks("right", "HABLAR"),  # chosen by right winks (before the 3 s look)
+        *winks("right", None),  # gaze wanders while winking
+        (2.5, "HABLAR", ()),  # ...then the look chooses
         (1.0, f"NECESITO {sep}", ()),
         *winks("left", f"NECESITO {sep}"),  # ignored; the look keeps counting
         (2.5, f"NECESITO {sep}", ()),
@@ -599,3 +599,5 @@ def test_calibration_learns_winks_and_three_right_winks_choose(
     assert "Cierre solo el ojo derecho, tres veces." in speech.spoken
     sources = report["measurement"]["session"]["confirmations_by_source"]
     assert sources == {"wink": 1, "gaze": 1}, (sources, report["measurement"]["blinks"])
+    # The wink step makes the person close the eyes again and again: never an urgent call.
+    assert report["measurement"]["blinks"]["urgent_gestures"] == 0

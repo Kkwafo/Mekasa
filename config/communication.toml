@@ -67,13 +67,23 @@ combined_dwell_seconds = 3.0
 blink_select_count = 3   # choose the option being looked at
 blink_toggle_count = 4   # start/stop reading (SPACE does the same)
 blink_speak_count = 5    # say the composed message now
-blink_urgent_count = 7   # urgent call + alarm, from any screen, even paused
+blink_urgent_count = 7   # 7 OR MORE: urgent call + alarm at once, any screen, even paused
+urgent_repeat_seconds = 2.5  # if the blinking continues, repeat the call (at most this often)
 blink_toggle = true
 # Winks (one eye only). The calibration asks to close only the right eye 3 times, then only
 # the left; winks of an eye are enabled only if they were recognized there. Spontaneous blinks
 # are bilateral, so winks are hard to trigger by accident.
 calibrate_winks = true
-wink_select_count = 3     # winks in a row with one eye choose the option being looked at
+wink_select_count = 3     # winks in a row with one eye
+# Order of a blink/wink selection (2026-11-17 feedback: the gaze estimate jumps while blinking,
+# so looking first and blinking after was hard). "blink_then_look": blink (or wink) first, then
+# look at the option for intent_focus_seconds within intent_window_seconds.
+# "look_then_blink": look until the option is ready, then blink.
+blink_select_order = "blink_then_look"
+intent_focus_seconds = 1.0
+intent_window_seconds = 5.0
+# The gaze estimate jumps right after the eyes reopen: keep the previous point this long.
+blink_settle_seconds = 0.3
 # Engineering hypotheses, to adjust with the person:
 blink_min_focus_seconds = 0.4         # stable gaze on the option before the blinks
 blink_selection_window_seconds = 3.0  # the blinks must end within this time after looking

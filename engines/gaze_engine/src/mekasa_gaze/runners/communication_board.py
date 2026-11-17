@@ -663,7 +663,13 @@ def run_board(
         min_closed_seconds=communication.blink_min_closed_seconds,
         max_closed_seconds=communication.blink_max_closed_seconds,
         max_gap_seconds=communication.blink_max_gap_seconds,
-        commands=tuple(communication.blink_counts.values()),
+        commands=(
+            communication.blink_select_count,
+            communication.blink_toggle_count,
+            communication.blink_speak_count,
+        ),
+        urgent_count=communication.blink_urgent_count,
+        urgent_repeat_seconds=communication.urgent_repeat_seconds,
     )
     counts = communication.blink_counts
     blink_stats = {
@@ -764,6 +770,7 @@ def run_board(
             summary_notice: str | None = None
             test: InstructedTest | None = None
             wink_step: WinkCalibration | None = None
+            steady_point: tuple[float, float] | None = None
             wink_eye: str | None = None
             grid_ears: dict[str, list[float]] = {"left": [], "right": []}
             summary_speech = ""
@@ -842,10 +849,14 @@ def run_board(
                 if key in (27, ord("q")):
                     break
 
-                # Blink gestures are read in every phase; the urgent call acts at once,
-                # whatever the screen and even while paused or calibrating.
+                # Blink gestures are read in every phase except the wink step; the urgent call
+                # acts at once, whatever the screen and even while paused or calibrating.
                 gesture = None
-                if fresh and last is not None:
+                if phase is Phase.WINKS:
+                    # The wink step asks for repeated closures on purpose (and someone who
+                    # cannot isolate one eye closes both): no gestures here, not even urgent.
+                    blinks.reset()
+                elif fresh and last is not None:
                     left_state = last.validity.left_eye_state
                     right_state = last.validity.right_eye_state
                     if wink_profile is not None:
@@ -858,7 +869,7 @@ def run_board(
                 elif not connected:
                     blinks.reset()
                 both = gesture is not None and gesture.eyes == BOTH
-                if gesture is not None and both and gesture.count == counts["urgent"]:
+                if gesture is not None and gesture.urgent:  # 7 or more, repeated if it goes on
                     blink_stats["urgent_gestures"] += 1
                     if navigator is not None:
                         urgent_text = navigator.urgent().speak
@@ -1079,22 +1090,41 @@ def run_board(
                     continue
 
                 # ------------------------------------------------------------ board / test
-                tick = replace(
-                    gaze_input(last, now, connected),
-                    hold_dwell=blinks.count_in_progress > 0 or blinks.eyes_closed,
+                tick = gaze_input(last, now, connected)
+                # Right after the eyes reopen the gaze estimate jumps: keep the last steady
+                # point for blink_settle_seconds so a blink never moves the focus.
+                reopened = blinks.reopened_at
+                settling = blinks.eyes_closed or (
+                    reopened is not None and now - reopened < communication.blink_settle_seconds
                 )
+                if tick.prediction is not None:
+                    if settling and steady_point is not None:
+                        tick = replace(tick, prediction=steady_point)
+                    elif not settling:
+                        steady_point = tick.prediction
+                tick = replace(tick, hold_dwell=blinks.count_in_progress > 0 or blinks.eyes_closed)
                 update: SessionUpdate = session.update(tick)
+                if update.confirmed is not None and update.confirmed_source in ("blink", "wink"):
+                    key_name = (
+                        "wink_selections" if update.confirmed_source == "wink" else "selections"
+                    )
+                    blink_stats[key_name] += 1
                 wink_select = (
                     gesture is not None
                     and gesture.eyes != BOTH
                     and gesture.count == communication.wink_select_count
                 )
+                blink_first = communication.blink_select_order == "blink_then_look"
                 if wink_select:
                     blink_stats["wink_gestures"] += 1
-                    wink_update = session.select_by_blink(now, source="wink")
-                    if wink_update is not None and update.confirmed is None:
-                        blink_stats["wink_selections"] += 1
-                        update = wink_update
+                    if blink_first:
+                        if session.start_selection_intent(now, source="wink"):
+                            speak_safely(speech, "Elija.")
+                    else:
+                        wink_update = session.select_by_blink(now, source="wink")
+                        if wink_update is not None and update.confirmed is None:
+                            blink_stats["wink_selections"] += 1
+                            update = wink_update
                 elif gesture is not None and both and gesture.count == counts["toggle"]:
                     blink_stats["toggle_gestures"] += 1
                     if communication.blink_toggle and phase is Phase.BOARD:
@@ -1102,10 +1132,14 @@ def run_board(
                         speak_safely(speech, "Pausa." if session.paused else "Empiezo a leer.")
                 elif gesture is not None and both and gesture.count == counts["select"]:
                     blink_stats["select_gestures"] += 1
-                    blink_update = session.select_by_blink(now)
-                    if blink_update is not None and update.confirmed is None:
-                        blink_stats["selections"] += 1
-                        update = blink_update
+                    if blink_first:
+                        if session.start_selection_intent(now, source="blink"):
+                            speak_safely(speech, "Elija.")
+                    else:
+                        blink_update = session.select_by_blink(now)
+                        if blink_update is not None and update.confirmed is None:
+                            blink_stats["selections"] += 1
+                            update = blink_update
                 elif gesture is not None and both and gesture.count == counts["speak"]:
                     blink_stats["speak_gestures"] += 1
                     if phase is Phase.BOARD:
@@ -1311,6 +1345,7 @@ def run_board(
                     if session.blink_selection and blinks.winks
                     else 0,
                     blink_kind=blinks.kind_in_progress,
+                    blink_first=communication.blink_select_order == "blink_then_look",
                 )
                 cv2.imshow(_WINDOW_NAME, canvas)
     finally:

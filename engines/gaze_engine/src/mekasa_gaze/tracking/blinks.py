@@ -1,8 +1,13 @@
 """Deliberate blink and wink sequences as commands.
 
 Both eyes (defaults in ``config/communication.toml``): 3 = select, 4 = start/stop reading,
-5 = say the message, 7 = urgent call. One eye (*wink*, only after the calibration confirmed the
-person can wink with that eye): 3 = select.
+5 = say the message, 7 *or more* = urgent call. One eye (*wink*, only after the calibration
+confirmed the person can wink with that eye): 3 = select.
+
+The urgent call does not wait for the sequence to end: it is reported the moment the
+``urgent_count``-th blink completes, and every further blink of the same sequence reports it
+again (at most once per ``urgent_repeat_seconds``), so a person who keeps blinking keeps
+calling.
 
 A *closure* lasts between ``min_closed_seconds`` and ``max_closed_seconds``. Its kind is the
 majority pattern of its frames: both eyes closed, only the left or only the right. Closures of
@@ -44,6 +49,7 @@ class BlinkGesture:
     started_at: float
     ended_at: float
     eyes: str = BOTH
+    urgent: bool = False  # reported live, while the sequence is still going on
 
 
 @dataclass(slots=True)
@@ -61,6 +67,10 @@ class BlinkDetector:
     commands: tuple[int, ...] = DEFAULT_COMMANDS
     winks: tuple[str, ...] = ()
     wink_commands: tuple[int, ...] = DEFAULT_WINK_COMMANDS
+    urgent_count: int | None = None
+    urgent_repeat_seconds: float = 2.5
+    _urgent_fired_at: float | None = None
+    _reopened_at: float | None = None
     _closed_since: float | None = None
     _votes: Counter[str] = field(default_factory=Counter)
     _kind: str | None = None
@@ -86,6 +96,11 @@ class BlinkDetector:
         return self._closed_since is not None
 
     @property
+    def reopened_at(self) -> float | None:
+        """When the eyes last reopened after a closure (the gaze estimate jumps right after)."""
+        return self._reopened_at
+
+    @property
     def stats(self) -> dict[str, int]:
         return {
             "ignored_long_closures": self._ignored_long_closures,
@@ -99,6 +114,7 @@ class BlinkDetector:
 
     def _clear_sequence(self) -> None:
         self._kind, self._count, self._sequence_start, self._last_blink_end = None, 0, None, None
+        self._urgent_fired_at = None
 
     def update(
         self,
@@ -134,6 +150,7 @@ class BlinkDetector:
             started = self._closed_since
             kind = self._votes.most_common(1)[0][0] if self._votes else BOTH
             self._closed_since = None
+            self._reopened_at = now
             self._votes.clear()
             if self.min_closed_seconds <= duration <= self.max_closed_seconds:
                 if self._count and kind != self._kind:  # another kind: a new sequence
@@ -143,13 +160,29 @@ class BlinkDetector:
                     self._sequence_start, self._kind = started, kind
                 self._count += 1
                 self._last_blink_end = now
+                if (
+                    self.urgent_count is not None
+                    and kind == BOTH
+                    and self._count >= self.urgent_count
+                    and (
+                        self._urgent_fired_at is None
+                        or now - self._urgent_fired_at >= self.urgent_repeat_seconds
+                    )
+                ):
+                    self._urgent_fired_at = now
+                    return BlinkGesture(
+                        self._count, self._sequence_start or now, now, BOTH, urgent=True
+                    )
             return None
         if not self._count or self._last_blink_end is None:
             return None
         if now - self._last_blink_end <= self.max_gap_seconds:
             return None
         count, kind, started_at = self._count, self._kind or BOTH, self._sequence_start or now
+        urgent_sequence = self._urgent_fired_at is not None
         self._clear_sequence()
+        if urgent_sequence:  # already acted on while it was going on
+            return None
         allowed = self.commands if kind == BOTH else self.wink_commands
         if count not in allowed:
             self._ignored_sequences += 1

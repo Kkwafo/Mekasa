@@ -162,6 +162,16 @@ class CommunicationConfig:
     # recognized can choose the armed option with wink_select_count winks.
     calibrate_winks: bool = True
     wink_select_count: int = 3
+    # Order of a blink/wink selection. "blink_then_look" (default): blink first, then look at
+    # the option for intent_focus_seconds within intent_window_seconds. "look_then_blink":
+    # look until the option is ready, then blink (harder: the gaze estimate jumps during blinks).
+    blink_select_order: str = "blink_then_look"
+    intent_focus_seconds: float = 1.0
+    intent_window_seconds: float = 5.0
+    # After the eyes reopen, the gaze estimate jumps for a moment: keep the previous point.
+    blink_settle_seconds: float = 0.3
+    # 7 or more blinks: urgent call at once; continuing to blink repeats it (rate-limited).
+    urgent_repeat_seconds: float = 2.5
     blink_min_focus_seconds: float = 0.4
     blink_selection_window_seconds: float = 3.0
     blink_min_closed_seconds: float = 0.08
@@ -201,6 +211,20 @@ class CommunicationConfig:
             raise ValueError("blink gesture counts must be distinct and within [2, 9]")
         if not 2 <= self.wink_select_count <= 9:
             raise ValueError("wink_select_count must be within [2, 9]")
+        if self.blink_urgent_count <= max(
+            self.blink_select_count, self.blink_toggle_count, self.blink_speak_count
+        ):
+            raise ValueError("blink_urgent_count must be the largest blink count")
+        if self.blink_select_order not in ("blink_then_look", "look_then_blink"):
+            raise ValueError("blink_select_order must be blink_then_look or look_then_blink")
+        if not 0.3 <= self.intent_focus_seconds <= 3.0:
+            raise ValueError("intent_focus_seconds must be within [0.3, 3]")
+        if not 1.0 <= self.intent_window_seconds <= 15.0:
+            raise ValueError("intent_window_seconds must be within [1, 15]")
+        if not 0.0 <= self.blink_settle_seconds <= 1.0:
+            raise ValueError("blink_settle_seconds must be within [0, 1]")
+        if not 1.0 <= self.urgent_repeat_seconds <= 10.0:
+            raise ValueError("urgent_repeat_seconds must be within [1, 10]")
         if not 0.1 <= self.blink_min_focus_seconds <= 3.0:
             raise ValueError("blink_min_focus_seconds must be within [0.1, 3]")
         if not 0.5 <= self.blink_selection_window_seconds <= 10.0:
@@ -285,6 +309,19 @@ class CommunicationConfig:
             ),
             calibrate_winks=bool(section.get("calibrate_winks", defaults.calibrate_winks)),
             wink_select_count=int(section.get("wink_select_count", defaults.wink_select_count)),
+            blink_select_order=str(section.get("blink_select_order", defaults.blink_select_order)),
+            intent_focus_seconds=float(
+                section.get("intent_focus_seconds", defaults.intent_focus_seconds)
+            ),
+            intent_window_seconds=float(
+                section.get("intent_window_seconds", defaults.intent_window_seconds)
+            ),
+            blink_settle_seconds=float(
+                section.get("blink_settle_seconds", defaults.blink_settle_seconds)
+            ),
+            urgent_repeat_seconds=float(
+                section.get("urgent_repeat_seconds", defaults.urgent_repeat_seconds)
+            ),
             blink_select_count=int(section.get("blink_select_count", defaults.blink_select_count)),
             blink_toggle_count=int(section.get("blink_toggle_count", defaults.blink_toggle_count)),
             blink_speak_count=int(section.get("blink_speak_count", defaults.blink_speak_count)),

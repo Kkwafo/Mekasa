@@ -47,6 +47,7 @@ class SessionState(StrEnum):
     AWAITING_CONFIRMATION = "AWAITING_CONFIRMATION"
     COOLDOWN = "COOLDOWN"
     AWAITING_EXIT = "AWAITING_EXIT"
+    SELECTING = "SELECTING"  # after a blink/wink gesture: the next fixation chooses
 
 
 class AbstainReason(StrEnum):
@@ -112,6 +113,8 @@ class SessionStats:
     signal_loss_events: int = 0
     dropout_ticks_bridged: int = 0
     blink_selections_rejected: int = 0
+    intents_started: int = 0
+    intents_expired: int = 0
 
     def as_dict(self, *, include_options: bool = False) -> dict[str, object]:
         """Serialize counters for JSON reports.
@@ -129,6 +132,8 @@ class SessionStats:
             "signal_loss_events": self.signal_loss_events,
             "dropout_ticks_bridged": self.dropout_ticks_bridged,
             "blink_selections_rejected": self.blink_selections_rejected,
+            "intents_started": self.intents_started,
+            "intents_expired": self.intents_expired,
         }
         if include_options:
             result["confirmations_by_option"] = dict(sorted(self.confirmations_by_option.items()))
@@ -165,6 +170,8 @@ class CommunicationSession:
         self._armed: BoardOption | None = None
         self._armed_seen = float("-inf")
         self._rearm_since: float | None = None
+        self._intent_until: float | None = None
+        self._intent_source = "blink"
         self._signal_since: float | None = None
         self._was_lost = True
         self._focused: BoardOption | None = None
@@ -253,12 +260,37 @@ class CommunicationSession:
         """Clear the displayed message (explicit user/caregiver action only)."""
         self._message = None
 
+    @property
+    def selecting(self) -> bool:
+        """A blink/wink gesture opened a selection: the next fixation chooses."""
+        return self._intent_until is not None
+
+    def start_selection_intent(self, now_seconds: float, *, source: str = "blink") -> bool:
+        """Blink first, look after: open a window where a short fixation chooses an option.
+
+        The gaze during the gesture is ignored (the estimate jumps while blinking): focus starts
+        fresh, any cooldown or exit rule is lifted (the gesture is deliberate), and the option
+        looked at for ``intent_focus_seconds`` within ``intent_window_seconds`` is confirmed.
+        """
+        if not self._blink_selection or not self.gaze_enabled or self._paused:
+            self.stats.blink_selections_rejected += 1
+            return False
+        self._cancel_focus()
+        self._discard_pending()
+        self._armed = None
+        self._cooldown_until = min(self._cooldown_until, now_seconds)
+        self._intent_until = now_seconds + self._config.intent_window_seconds
+        self._intent_source = source
+        self.stats.intents_started += 1
+        return True
+
     def interrupt(self, now_seconds: float) -> None:
         """The screen changed outside a selection (blink shortcut, key): what is under the
         gaze is new, so drop focus, armed and pending options and give a cooldown to read."""
         self._cancel_focus()
         self._discard_pending()
         self._armed = None
+        self._intent_until = None
         self._cooldown_until = max(
             self._cooldown_until, now_seconds + self._config.cooldown_seconds
         )
@@ -326,6 +358,8 @@ class CommunicationSession:
             if self._focus_since is not None:
                 progress = min(0.999, (now - self._focus_since) / self._dwell)
             state = SessionState.FOCUSING if self._focused is not None else SessionState.READY
+            if self._intent_until is not None:
+                state = SessionState.SELECTING
             if self._pending is not None:
                 state = SessionState.AWAITING_CONFIRMATION
             if now < self._cooldown_until:
@@ -339,9 +373,12 @@ class CommunicationSession:
             self._was_lost = True
             eye_only = reason in (AbstainReason.EYE_SIGNAL, AbstainReason.NO_PREDICTION)
             armed, armed_seen = self._armed, self._armed_seen
+            intent = self._intent_until
             self._flush()
             if self._blink_selection and eye_only:  # the blink itself: stay armed
                 self._armed, self._armed_seen = armed, armed_seen
+            if eye_only and intent is not None:  # another blink does not cancel a selection
+                self._intent_until = intent
             return self._snapshot(SessionState.SIGNAL_LOST, abstain_reason=reason)
         assert tick.prediction is not None
         point = tick.prediction
@@ -357,6 +394,13 @@ class CommunicationSession:
                     recovery_progress=stable_for / self._config.recovery_seconds,
                 )
             self._was_lost = False
+
+        if self._intent_until is not None:
+            if now <= self._intent_until:
+                return self._intent_focus(point, now, tick.hold_dwell, previous_tick)
+            self._intent_until = None
+            self.stats.intents_expired += 1
+            self._clear_focus()
 
         if self._pending is not None and now > self._pending_until:
             self._discard_pending()
@@ -420,6 +464,34 @@ class CommunicationSession:
         return self._snapshot(SessionState.AWAITING_CONFIRMATION)
 
     # ------------------------------------------------------------------ helpers
+    def _intent_focus(
+        self,
+        point: tuple[float, float],
+        now: float,
+        hold: bool,
+        previous_tick: float | None,
+    ) -> SessionUpdate:
+        """Selection window: the option looked at for ``intent_focus_seconds`` is chosen."""
+        self._rearm = None
+        self._rearm_since = None
+        candidate = self._candidate(point)
+        if candidate is None:
+            self._cancel_focus()
+            return self._snapshot(SessionState.SELECTING)
+        if candidate is not self._focused:
+            self._cancel_focus()
+            self._focused = candidate
+            self._focus_since = now
+        assert self._focus_since is not None
+        if hold and previous_tick is not None:
+            self._focus_since += max(0.0, now - previous_tick)
+        progress = (now - self._focus_since) / self._config.intent_focus_seconds
+        if progress < 1.0 or hold:
+            return self._snapshot(SessionState.SELECTING, progress=min(progress, 0.999))
+        self._intent_until = None
+        self._clear_focus()
+        return self._confirm(candidate, now, self._intent_source)
+
     def _blink_focus(self, candidate: BoardOption | None, now: float) -> SessionUpdate:
         """Blink mode: fixation arms an option; time alone never confirms."""
         if candidate is None:
@@ -509,6 +581,7 @@ class CommunicationSession:
         self._cancel_focus()
         self._discard_pending()
         self._armed = None
+        self._intent_until = None
         self._signal_since = None
         self._last_valid_at = None
         self._was_lost = True

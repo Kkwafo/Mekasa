@@ -178,6 +178,21 @@ Sin medir con persona:
 - **El temporizador se congela 0,8 s** después de cada parpadeo espontáneo: elegir por tiempo puede tardar algo más.
 - **Urgencias falsas** por series largas involuntarias.
 
+## Guiños: calibración por ojo y elegir con 3 guiños (2026-11-16, noche)
+
+| Parte | Detalle | Estado |
+| --- | --- | --- |
+| Paso de guiños en la calibración (`tracking/wink_calibration.py`) | "Cierre solo el ojo derecho / izquierdo, 3 veces", con conteo en vivo. Umbral por ojo = punto medio entre la apertura normal más baja (incluida la mirada hacia abajo) y la apertura al guiñar | implementado; test unitario |
+| Capacidad por ojo | Un ojo se habilita si con esos umbrales se reconocen al menos 2 de 3 guiños con el otro ojo abierto. Si no logra aislarlo, queda deshabilitado y se dice en el resumen | implementado; test de punta a punta (ojo derecho sí, izquierdo no) |
+| Detector | Cada cierre se clasifica por mayoría de cuadros (ambos, izquierdo o derecho); cada tipo arma su propia serie. Los guiños solo eligen, nunca pausan, dicen ni llaman a urgencias | implementado; tests unitarios |
+| Perfil guardado | `work/calibration/session-wink-profile.json` (solo umbrales y conteos), reutilizado con `-SinCalibrar` | implementado |
+| Corrección encontrada en la prueba | Si un gesto (5 = decir, 7 = urgencia) o una tecla cambiaba la pantalla, el temporizador de 3 s seguía sobre el mismo casillero y podía elegir en la pantalla nueva. Ahora se reinicia el foco y hay un enfriamiento (`CommunicationSession.interrupt`) | corregido; test |
+
+Sin medir con persona:
+
+- Si puede guiñar con cada ojo de forma confiable.
+- Si al guiñar el otro ojo se entrecierra lo suficiente para que el guiño se lea como parpadeo de ambos ojos (entonces no cuenta).
+
 ## Qué es desarrollo propio y qué es de terceros
 
 | Parte | De quién | Qué hace |

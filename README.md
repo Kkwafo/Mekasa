@@ -294,6 +294,7 @@ Por defecto (`selection_mode = "combined"`) funcionan **los dos a la vez**.
 | --- | --- |
 | Mirar una opción **3 s** | La elige |
 | Mirar una opción y **parpadear 3 veces seguidas** | La elige sin esperar los 3 s |
+| Mirar una opción y hacer **3 guiños con un ojo** (solo el ojo que la calibración reconoció) | La elige |
 | **4 parpadeos** | Empieza o para la lectura (también `ESPACIO`) |
 | **5 parpadeos** | Dice ya el mensaje armado, desde cualquier pantalla |
 | **7 parpadeos** | Llamada de urgencia: voz y alarma, desde cualquier pantalla, aun en pausa o calibrando |
@@ -312,7 +313,12 @@ Por defecto (`selection_mode = "combined"`) funcionan **los dos a la vez**.
   * cantidades sin función (2, 6, 8 o más);
   * cerrar los ojos más de 0,8 s, que además cancela la serie;
   * perder el rostro.
-* **Arriba aparece** "Parpadeos: n" mientras se cuenta.
+* **Guiños:** al final de la calibración (unos 14 s) el tablero pide cerrar **solo el ojo derecho** 3 veces y después **solo el izquierdo**.
+  * Con eso aprende un umbral de cierre para cada ojo y comprueba si la persona puede cerrar uno manteniendo el otro abierto.
+  * Los guiños de un ojo se activan solo si se reconocieron al menos 2 de los 3; el resultado aparece en la pantalla de calibración.
+  * Como los parpadeos espontáneos son de los dos ojos, un guiño casi nunca ocurre sin querer.
+  * Se desactiva con `calibrate_winks = false`.
+* **Arriba aparece** "Parpadeos: n" o "Guiños ojo derecho: n" mientras se cuenta.
 * **Mientras se cuenta una serie, el temporizador de mirada se congela.** Así, 5 o 7 parpadeos no terminan eligiendo por tiempo la opción que se estaba mirando.
 * **Elegir con parpadeos** requiere que la mirada haya estado estable sobre la opción (0,4 s, dentro de los últimos 3 s). La opción lista muestra el texto "parpadee 3 veces".
 * **Elegir por tiempo exige apartar la mirada** antes de volver a elegir el mismo casillero. Los parpadeos, que son deliberados, pueden elegir la opción nueva aunque esté en el mismo lugar.

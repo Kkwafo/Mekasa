@@ -348,7 +348,10 @@ uv run mekasa-board --simulate            # replay sin cámara de todos los bloq
   * compensa la distancia a la cámara con el ancho del rostro;
   * avisa si la persona se acercó, se alejó, se corrió o giró;
   * si el cambio dura más de 2,5 s, hace solo un ajuste rápido de 4 puntos;
-  * aprende un poco de cada selección hecha con la mirada; `C`, dentro de los 5 s, la borra y la descarta.
+  * sigue ajustándose con cada selección confirmada:
+    * aplica una corrección por eje, acotada, que pierde peso si cambia la postura;
+    * reentrena los pesos del modelo;
+    * `C`, VOLVER o BORRAR justo después de elegir hacen que esa selección no se aprenda.
 * **Configuración:** `config/communication.toml`. Contiene dwell, enfriamiento, recuperación, edad máxima de frame, confirmación, frases, voz y las opciones de precisión (`calibrate_at_start`, `auto_realign`, `implicit_recalibration`, `distance_compensation`, `camera_position`).
 * **Acceso directo:** las teclas `1`–`4` y el clic del mouse funcionan siempre, aun sin calibración.
 * **Otros controles:** `RETROCESO` vuelve un nivel, `H` va al inicio, `ESPACIO` pausa, `A` hace un ajuste rápido, `K` recalibra, `ENTER` confirma la opción pendiente, `M` cambia el modo ocular, `G` muestra el punto de mirada, `C` borra el mensaje y `ESC` sale.

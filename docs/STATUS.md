@@ -273,6 +273,38 @@ La compensación de distancia sigue siendo una hipótesis de ingeniería. Las se
 - Lo de la silla se reprodujo con la simulación de "mirar más abajo".
 - Recomendación: calibrar **después** de acomodar la silla. Si cambia la altura, recalibrar con `K`; el reajuste automático actúa solo si el rostro se corre más de 0,10 de la imagen.
 
+## Adaptación continua mientras se usa (2026-11-17)
+
+Pedido: que la calibración se siga ajustando al elegir palabras y responda a los movimientos.
+
+**Sesión "yo" (después de la corrección de abajo, 190 s):**
+
+- El modelo elegido fue imagen + puntos: solo con puntos daba 85 %; con imagen, 100 %.
+- Desaparecieron los cuadros "sin predicción" (antes 681).
+- Hubo 9 selecciones y 28 enfoques cancelados, y quedaron 972 ticks de "ojo no utilizable" (incluye parpadeos).
+
+**Qué se probó** (reanálisis de A/B con deriva simulada; modelo entrenado en las rondas 1–2 y la ronda 3 con deriva):
+
+| Estrategia | Resultado | Decisión |
+| --- | --- | --- |
+| Corrección afín completa con las selecciones (lo que estaba activo) | Con selecciones de solo 2 opciones gira o deforma el tablero: A 86 → 52 %, aun con todas las selecciones correctas | **reemplazada** |
+| Corrección solo con selecciones, aunque sea por eje | Si abajo no se elige nunca, aprende solo de arriba y **sube todo**, empeorando abajo (A 71 → 59 % con deriva hacia arriba) | por eje, con límites y confirmación |
+| Aprendizaje no supervisado por fijaciones | Amplificó errores (hasta 0 % en una simulación) | **descartado** |
+| Agrupar miradas en filas y columnas por orden | Sin mejora medible: pocas miradas por ronda en estas grabaciones | **descartado por ahora** |
+| Estirar los ejes después de calibrar (validación cruzada) | Sin cambio (en A/B el problema no es compresión) | descartado |
+| Reentrenar los pesos del modelo con selecciones confirmadas | Neutro a levemente positivo (A 71,3 → 71,8 %), sin daño | **activado** |
+
+**Qué quedó (`tracking/adaptation.py`):**
+
+- **Corrección por eje** (estirar y correr, sin girar), acotada.
+  - Con evidencia de un solo lado del centro solo puede correrse un tercio del límite.
+  - Cada selección cuenta recién **4 s después**, si no se deshizo con C, o con VOLVER o BORRAR justo después de elegir.
+- **Sensible a la postura:** cada selección guarda la distancia, la posición y el ángulo de la cabeza, y pesa menos si la postura actual es otra. Al moverse, lo aprendido en la postura anterior se desvanece en lugar de arrastrarse.
+- **Reentrenamiento de pesos** (`adapt_model_weights`) con los cuadros mirados al elegir, ya confirmados (peso 2, tope 240 cuadros). Después de cada reentrenamiento, la corrección por eje se reinicia porque ya quedó absorbida.
+- **Medición en cada reporte** (`adaptation.selection_offsets`): por fila, cuántas selecciones hubo y cuánto se desvió la mirada del centro de la opción. No guarda contenido ni pantallas. Con esto, la próxima sesión real dirá si la adaptación ayuda.
+
+**Límite honesto:** no se pudo demostrar con los datos disponibles que la adaptación continua mejore el acierto. Sí se eliminó lo que en las simulaciones empeoraba. Si abajo no se registra nunca, la vía más confiable sigue siendo un reajuste explícito de 4 puntos (tecla `A`), que da evidencia de las dos filas.
+
 ## Qué es desarrollo propio y qué es de terceros
 
 | Parte | De quién | Qué hace |

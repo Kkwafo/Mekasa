@@ -39,9 +39,13 @@ countdown_seconds = 3
 # Re-run the 4-point alignment automatically when the face stays clearly closer, farther,
 # shifted or turned relative to calibration (engineering hypothesis).
 auto_realign = true
-# Learn lightly from each gaze selection (assumes the person looked at what they chose;
-# clearing the message with C within 5 s retracts it). Engineering hypothesis.
+# Keep adjusting while the board is used (2026-11-17). Each selection made by looking or by
+# blinking-then-looking is evidence of where that option is for the current posture. It counts
+# only after 4 s without being undone (C, VOLVER or BORRAR right after choosing). Per-axis and
+# bounded; evidence from a different posture fades. Engineering hypothesis.
 implicit_recalibration = true
+# Also re-fit the model weights with the frames looked at while choosing (confirmed only).
+adapt_model_weights = true
 # Scale predictions about the camera by calibration face width / current face width, the
 # projective effect of viewing distance. Engineering hypothesis until measured.
 distance_compensation = true

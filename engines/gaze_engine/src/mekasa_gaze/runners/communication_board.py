@@ -52,15 +52,19 @@ from mekasa_gaze.core.vocabulary import load_vocabulary
 from mekasa_gaze.services.alarm import play_alarm
 from mekasa_gaze.services.runtime import environment, source_revision
 from mekasa_gaze.services.speech import create_speech_backend
+from mekasa_gaze.tracking.adaptation import AdaptiveCorrection, SelectionTelemetry
 from mekasa_gaze.tracking.blinks import BOTH, BlinkDetector
 from mekasa_gaze.tracking.calibration import load_calibration_model
 from mekasa_gaze.tracking.communication import CommunicationSession, GazeInput, SessionUpdate
-from mekasa_gaze.tracking.conversation import Navigator
+from mekasa_gaze.tracking.conversation import CellKind, Navigator
 from mekasa_gaze.tracking.gaze_model import (
+    CalibrationSample,
     FitResult,
+    PersonalGazeModel,
     fit_personal_model,
     load_personal_model,
     observation_features,
+    refit_personal_model,
     save_personal_model,
 )
 from mekasa_gaze.tracking.placement import (
@@ -78,7 +82,6 @@ from mekasa_gaze.tracking.placement_monitor import (
 from mekasa_gaze.tracking.session_alignment import (
     AlignmentProcedure,
     AlignmentSnapshot,
-    OnlineCorrection,
 )
 from mekasa_gaze.tracking.session_calibration import (
     CalibrationProcedure,
@@ -234,6 +237,10 @@ class GazePipeline:
         self._lid_gate.reset()
         self.monitor.rebase(_reference_of(model))
 
+    def update_model(self, model: GazeEstimator) -> None:
+        """Swap in a re-fitted model of the same eye mode, keeping smoothing and placement."""
+        self._model = model
+
     # Backwards-compatible name used by older callers and tests.
     def set_eye_mode(self, mode: EyeMode, model: GazeEstimator | None) -> None:
         self.set_model(mode, model)
@@ -313,6 +320,17 @@ _EYES_OF_MODE = {
     EyeMode.LEFT: ("left",),
     EyeMode.RIGHT: ("right",),
 }
+
+
+def model_target(
+    center: tuple[float, float], distance_scale: float, camera: tuple[float, float]
+) -> tuple[float, float]:
+    """Label for re-fitting: undo the distance compensation applied after the model."""
+    scale = distance_scale if distance_scale > 0 else 1.0
+    return (
+        camera[0] + (center[0] - camera[0]) / scale,
+        camera[1] + (center[1] - camera[1]) / scale,
+    )
 
 
 def _reference_of(model: GazeEstimator | None) -> Any:
@@ -772,13 +790,21 @@ def run_board(
             target_fps=guided_config.target_fps,
         )
     )
-    online = OnlineCorrection()
+    online = AdaptiveCorrection()
+    telemetry = SelectionTelemetry()
+    calibration_samples: list[CalibrationSample] = []
+    online_frames: list[tuple[CalibrationSample, float]] = []
+    pending_frames: list[tuple[float, list[CalibrationSample]]] = []
+    recent_frames: deque[tuple[float, FeatureObservation, str, float]] = deque(maxlen=150)
+    last_learned_at = -1e9
+    last_correction_at = -1e9
     stats: dict[str, Any] = {
         "calibrations": 0,
         "alignments_completed": 0,
         "auto_realignments": 0,
         "implicit_samples_added": 0,
         "implicit_samples_retracted": 0,
+        "model_refits": 0,
         "eye_mode_auto_switched": None,
     }
     calibration_report: dict[str, Any] | None = None
@@ -851,6 +877,8 @@ def run_board(
                 session.set_eye_mode(mode)
                 session.set_calibration(model.eye_mode if model else None)
                 online.reset()
+                online_frames.clear()
+                pending_frames.clear()
                 blinks.eye_mode = mode
                 blinks.winks = (
                     wink_profile.wink_eyes
@@ -893,9 +921,9 @@ def run_board(
 
             def end_alignment(snapshot: AlignmentSnapshot | None, now: float) -> None:
                 if snapshot is not None and snapshot.correction is not None:
-                    online.set_anchors(snapshot.samples)
+                    online.set_anchors(snapshot.samples, now, pipeline.monitor.current())
                     stats["alignments_completed"] += 1
-                pipeline.set_correction(online.correction(now))
+                pipeline.set_correction(online.correction(now, pipeline.monitor.current()))
                 if resume_after_alignment:
                     session.resume()
 
@@ -1071,6 +1099,7 @@ def run_board(
                             eye: [float(s.features[f"{eye}_eye_aspect_ratio"]) for s in both_open]
                             for eye in ("left", "right")
                         }
+                        calibration_samples = list(calibration.samples)
                         calibration = None
                         if communication.calibrate_winks and all(grid_ears.values()):
                             wink_step = WinkCalibration(
@@ -1298,6 +1327,33 @@ def run_board(
                     latencies.append((now - last.frame_timestamp_seconds) * 1000.0)
                     if update.focused is not None and last.raw_screen_point is not None:
                         focus_trace.append((now, last.raw_screen_point, update.focused.key))
+                        recent_frames.append(
+                            (
+                                now,
+                                last.observation,
+                                update.focused.key,
+                                last.placement_status.distance_scale,
+                            )
+                        )
+
+                # Continuous adaptation: confirmed selections become evidence, the correction
+                # follows the current posture, and the model weights are re-fitted.
+                while pending_frames and now - pending_frames[0][0] >= online.confirm_seconds:
+                    _, new_frames = pending_frames.pop(0)
+                    active_model = models.get(eye_mode)
+                    if isinstance(active_model, PersonalGazeModel) and calibration_samples:
+                        online_frames.extend((frame, 2.0) for frame in new_frames)
+                        del online_frames[:-240]
+                        refitted = refit_personal_model(
+                            active_model, calibration_samples, online_frames
+                        )
+                        models.models[eye_mode] = refitted
+                        pipeline.update_model(refitted)
+                        online.clear_implicit()  # absorbed by the new weights
+                        stats["model_refits"] += 1
+                if now - last_correction_at >= 0.5:
+                    last_correction_at = now
+                    pipeline.set_correction(online.correction(now, pipeline.monitor.current()))
 
                 for click in clicks:
                     board_point = screen_to_board(click, area)
@@ -1329,7 +1385,9 @@ def run_board(
                         navigator.last_said = None
                     if online.retract_recent(now):
                         stats["implicit_samples_retracted"] += 1
-                        pipeline.set_correction(online.correction(now))
+                        telemetry.retracted += 1
+                        if pending_frames and now - pending_frames[-1][0] <= online.confirm_seconds:
+                            pending_frames.pop()
                 elif key in (ord("g"), ord("G")):
                     show_gaze = not show_gaze
                 elif key in (ord("m"), ord("M")):
@@ -1375,7 +1433,22 @@ def run_board(
                 if update.confirmed is not None:
                     spoken: str | None = None
                     if phase is not Phase.TEST and navigator is not None:
-                        outcome = navigator.select(keys.index(update.confirmed.key))
+                        index = keys.index(update.confirmed.key)
+                        kind = navigator.cells()[index].kind
+                        if (
+                            kind in (CellKind.NAV, CellKind.DELETE)
+                            and now - last_learned_at <= online.confirm_seconds
+                        ):
+                            # Going back or deleting right after a choice: probably a mistake,
+                            # so the choice is not learned from.
+                            if online.retract_recent(now):
+                                stats["implicit_samples_retracted"] += 1
+                                telemetry.retracted += 1
+                            if pending_frames and now - pending_frames[-1][0] <= (
+                                online.confirm_seconds
+                            ):
+                                pending_frames.pop()
+                        outcome = navigator.select(index)
                         conversation_stats["selections"] += 1
                         spoken = outcome.speak
                         if outcome.alarm and communication.urgent_alarm:
@@ -1413,9 +1486,36 @@ def run_board(
                                 ),
                                 area,
                             )
-                            online.add_selection((float(median[0]), float(median[1])), center, now)
+                            predicted = (float(median[0]), float(median[1]))
+                            online.add_selection(predicted, center, now, pipeline.monitor.current())
+                            telemetry.add(predicted, center, split[1])
                             stats["implicit_samples_added"] += 1
-                            pipeline.set_correction(online.correction(now))
+                            last_learned_at = now
+                            if communication.adapt_model_weights:
+                                window = (
+                                    max(
+                                        communication.effective_dwell_seconds,
+                                        communication.intent_focus_seconds,
+                                    )
+                                    + 0.3
+                                )
+                                frames = [
+                                    CalibrationSample(
+                                        model_target(
+                                            center,
+                                            scale if communication.distance_compensation else 1.0,
+                                            communication.camera_position,
+                                        ),
+                                        99,
+                                        at,
+                                        observation_features(obs),
+                                        obs.eye_patches,
+                                    )
+                                    for at, obs, focused, scale in recent_frames
+                                    if focused == option.key and now - at <= window
+                                ][::2]
+                                if len(frames) >= 4:
+                                    pending_frames.append((now, frames))
                     focus_trace.clear()
 
                 notice: str | None = transient["text"] if now < transient["until"] else None
@@ -1527,7 +1627,7 @@ def run_board(
                 "p95": _percentile(latencies, 95),
             },
             "speech_failures": speech_failures,
-            "adaptation": stats,
+            "adaptation": {**stats, "selection_offsets": telemetry.summary()},
             "conversation": conversation_stats,
             "blinks": {**blink_stats, **blinks.stats},
             "session": session.stats.as_dict(),

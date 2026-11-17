@@ -181,18 +181,25 @@ class _RidgePath:
         matrix: npt.NDArray[np.float64],
         targets: npt.NDArray[np.float64],
         blocks: Sequence[int],
+        sample_weights: npt.NDArray[np.float64] | None = None,
     ) -> None:
-        self.mean = matrix.mean(axis=0)
-        std = matrix.std(axis=0)
+        count = matrix.shape[0]
+        w = (
+            np.full(count, 1.0 / count)
+            if sample_weights is None
+            else sample_weights / float(np.sum(sample_weights))
+        )
+        self.mean = w @ matrix
+        std = np.sqrt(w @ (matrix - self.mean) ** 2)
         std = np.where(std > 1e-9, std, 1.0)
         block_factor = np.concatenate([np.full(size, np.sqrt(size)) for size in blocks])
         self.scale = std * block_factor
         standardized = (matrix - self.mean) / self.scale
-        self.intercept = targets.mean(axis=0)
-        count = matrix.shape[0]
-        eigenvalues, self._vectors = np.linalg.eigh(standardized.T @ standardized / count)
+        self.intercept = w @ targets
+        weighted = standardized * w[:, None]
+        eigenvalues, self._vectors = np.linalg.eigh(standardized.T @ weighted)
         self._eigenvalues = np.clip(eigenvalues, 0.0, None)
-        self._projected = self._vectors.T @ (standardized.T @ (targets - self.intercept) / count)
+        self._projected = self._vectors.T @ (weighted.T @ (targets - self.intercept))
 
     def fit(self, alpha: float) -> _Fit:
         weights = self._vectors @ (self._projected / (self._eigenvalues + alpha)[:, None])
@@ -600,6 +607,56 @@ def fit_personal_model(
     return FitResult(model, candidates, len(usable))
 
 
+def refit_personal_model(
+    model: PersonalGazeModel,
+    base: Sequence[CalibrationSample],
+    extra: Sequence[tuple[CalibrationSample, float]],
+) -> PersonalGazeModel:
+    """Re-train the chosen model (same features and alpha) with new labelled samples.
+
+    ``base`` are the calibration frames of this session (weight 1 each); ``extra`` are frames
+    gathered while using the board, each with its own weight (e.g. frames looked at while an
+    option was chosen, labelled with that option's centre). Thresholds and the placement
+    reference stay as calibrated. Used to keep adjusting the weights as the person moves.
+    """
+    thresholds = PersonalThresholds(model.closed_ear_threshold, model.min_vertical_span)
+    spec = model.spec
+    matrix, targets, kept = _matrix(usable_samples(base, model.eye_mode, thresholds), spec)
+    rows: list[npt.NDArray[np.float64]] = []
+    labels: list[Point] = []
+    extra_weights: list[float] = []
+    for sample, weight in extra:
+        vector = spec.vectorize(sample.features, sample.patches)
+        if vector is None or weight <= 0:
+            continue
+        rows.append(vector)
+        labels.append(sample.target)
+        extra_weights.append(weight)
+    if not rows:
+        return model
+    if kept:
+        matrix = np.vstack([matrix, np.vstack(rows)])
+        targets = np.vstack([targets, np.asarray(labels, dtype=np.float64)])
+        weights = np.concatenate([np.ones(len(kept)), np.asarray(extra_weights)])
+    else:
+        matrix, targets = np.vstack(rows), np.asarray(labels, dtype=np.float64)
+        weights = np.asarray(extra_weights)
+    fit = _RidgePath(matrix, targets, spec.blocks, weights).fit(model.alpha)
+    return PersonalGazeModel(
+        spec=spec,
+        mean=fit.mean,
+        scale=fit.scale,
+        weights=fit.weights,
+        intercept=fit.intercept,
+        alpha=model.alpha,
+        closed_ear_threshold=model.closed_ear_threshold,
+        min_vertical_span=model.min_vertical_span,
+        reference=model.reference,
+        metrics={**model.metrics, "online_frames": len(rows)},
+        created_at_utc=model.created_at_utc,
+    )
+
+
 __all__ = [
     "ALPHAS",
     "KINDS",
@@ -613,6 +670,7 @@ __all__ = [
     "load_personal_model",
     "observation_features",
     "personal_thresholds",
+    "refit_personal_model",
     "sample_from_observation",
     "save_personal_model",
     "usable_samples",

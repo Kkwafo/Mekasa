@@ -255,6 +255,8 @@ def test_board_session_calibrates_tests_and_adapts(
     assert adaptation["auto_realignments"] >= 1
     assert "Cambió de posición" in world.alignment_reasons
     assert adaptation["implicit_samples_added"] >= 2
+    assert adaptation["model_refits"] >= 1  # weights re-fitted with confirmed choices
+    assert adaptation["selection_offsets"]["bottom"]["selections"] >= 1
     assert speech.spoken.count("Quiero agua") >= 2  # bottom row still works after moving
     assert report["privacy"]["eye_patches_persisted"] is False
     assert report["configuration"]["eye_mode_at_end"] == EyeMode.BOTH.value

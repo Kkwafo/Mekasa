@@ -144,6 +144,7 @@ class CommunicationConfig:
     countdown_seconds: int = 3
     auto_realign: bool = True
     implicit_recalibration: bool = True
+    adapt_model_weights: bool = True
     distance_compensation: bool = True
     # Accepted face width (fraction of the image): wider than the research protocol (0.25-0.45)
     # so the board keeps working closer to and farther from the camera.
@@ -308,6 +309,9 @@ class CommunicationConfig:
             auto_realign=bool(section.get("auto_realign", defaults.auto_realign)),
             implicit_recalibration=bool(
                 section.get("implicit_recalibration", defaults.implicit_recalibration)
+            ),
+            adapt_model_weights=bool(
+                section.get("adapt_model_weights", defaults.adapt_model_weights)
             ),
             distance_compensation=bool(
                 section.get("distance_compensation", defaults.distance_compensation)

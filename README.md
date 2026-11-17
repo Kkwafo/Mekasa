@@ -286,6 +286,28 @@ Ejemplo: HABLAR → CÓMO ESTOY → ME DUELE → CABEZA → MUCHO → AGREGAR �
 * **Privacidad:** el reporte cuenta selecciones y mensajes dichos, pero no guarda su contenido.
 * **El tablero simple** sigue disponible con `--interface simple` o `-Simple`.
 
+### Cómo se elige: por tiempo o por parpadeo
+
+| Modo | Elegir | Empezar / parar |
+| --- | --- | --- |
+| **Por tiempo** (por defecto) | Mirar la opción durante el dwell (0,9 s) | 4 parpadeos seguidos o `ESPACIO` |
+| **Por parpadeo** (`-Parpadeo` o `--selection blink`) | Mirar la opción hasta que se marque con borde amarillo y el texto "parpadee 2 veces", y después **parpadear 2 veces**. Nunca elige por tiempo | Empieza **en espera**: 4 parpadeos seguidos empiezan a leer y otros 4 lo pausan (o `ESPACIO`) |
+
+```powershell
+.\scripts\mekasa.ps1 tablero -Parpadeo
+```
+
+* **Un parpadeo** es cerrar los ojos entre 0,08 y 0,8 s: los dos en "ambos ojos", el ojo activo en modo de un ojo.
+* **Una serie** son parpadeos separados por menos de 0,8 s con los ojos abiertos. Se reconoce al terminar, así que 2 y 4 no se confunden.
+* **Se ignoran:**
+  * un parpadeo suelto (los espontáneos);
+  * 3, o más de 4;
+  * cerrar los ojos más de 0,8 s (descansar), que además cancela la serie;
+  * perder el rostro.
+* **Arriba aparece** "Parpadeos: n" mientras se cuenta.
+* **Elegir con 2 parpadeos** requiere además que la mirada haya estado estable sobre esa opción justo antes (0,4 s, dentro de los últimos 3 s). Las pérdidas de cámara o de rostro desarman la opción.
+* **Todos los tiempos son hipótesis de ingeniería** y se ajustan en `config/communication.toml` (`blink_*`).
+
 ### Tablero de comunicación (opciones comunes)
 
 ```powershell

@@ -141,6 +141,25 @@ Sin medir con persona:
 - **Fatiga ocular.** Según la encuesta en ELA, es la causa principal de abandono del seguimiento ocular.
 - **Disparos accidentales de URGENTE.** Están en un solo paso a propósito; si molestan, se puede pedir confirmación solo para URGENTE (no está implementado).
 
+## Selección por parpadeo y empezar/parar con 4 parpadeos (2026-11-16, noche)
+
+Pedido: poder empezar y parar cuando la persona quiere elegir, y una modalidad donde se elige parpadeando 2 veces, no por tiempo.
+
+| Parte | Detalle | Estado |
+| --- | --- | --- |
+| Detector (`tracking/blinks.py`) | Cierre de 0,08–0,8 s; serie con huecos ≤ 0,8 s; reporta 2 o 4 al terminar; ignora 1, 3, más de 4, cierres largos y pérdida de rostro | implementado; 4 tests unitarios |
+| Modo parpadeo en la sesión | Mirar 0,4 s arma la opción y 2 parpadeos la eligen dentro de los 3 s siguientes. Nunca elige por tiempo. La pérdida de cámara o rostro desarma; la de ojo no, porque es el propio parpadeo | implementado; 4 tests de sesión |
+| Empezar y parar | 4 parpadeos alternan lectura y pausa, en los dos modos. El modo parpadeo empieza en espera, y los reajustes automáticos no reactivan la lectura si estaba en pausa | implementado |
+| De punta a punta | Persona sintética: 4 parpadeos empiezan; 5 s mirando fijo no eligen nada; "Necesito agua." se arma con 5 dobles parpadeos; 4 parpadeos pausan | test aprobado |
+
+Sin medir con persona:
+
+- **Dobles parpadeos espontáneos.** Pueden ocurrir; por eso se exige la mirada estable previa.
+- **Parpadeos voluntarios** que no bajen del umbral personal de ojo cerrado (parpadeos incompletos).
+- **Cansancio** de parpadear seguido.
+
+Sugerencia: medir 10 dobles parpadeos voluntarios y 5 minutos de reposo (falsas selecciones), y ajustar `blink_*`.
+
 ## Resultados por modo con baseline y modelo adaptado
 
 Baseline Ridge por modo: ver la sesión del 2026-11-16 arriba. **No hay modelo adaptado todavía** (hito 3). El resultado anterior es del 2026-09-21, en modo binocular y con distancia mayor:

@@ -206,6 +206,41 @@ Comentario de la persona: "al pestañear o guiñar el ojo a veces se va para otr
 
 Sin medir con persona: si 1 s de mirada después del gesto es cómodo (`intent_focus_seconds`) y si 0,3 s de congelamiento alcanzan.
 
+## Menos descalibración al parpadear y más rango de distancia (2026-11-17)
+
+Comentario: "cuando uno pestañea a veces se descalibra", "si se mueve mucho", "más rango si está lejos o cerca".
+
+**Causa del salto al parpadear.** El suavizado (media móvil) se reiniciaba con cada cierre de ojos y arrancaba de nuevo con los primeros cuadros al reabrir. En esos cuadros el párpado está a medio abrir y la estimación salta, sobre todo hacia abajo, porque la apertura del ojo es un dato del modelo.
+
+**Cambio (`tracking/smoothing.py`).** El suavizado:
+
+- no se reinicia en cierres de hasta 0,6 s;
+- usa la mediana de los últimos 7 cuadros válidos antes de la media móvil;
+- descarta los cuadros con un ojo apenas abierto (menos de 1,35 × el umbral personal de ojo cerrado) y mantiene la estimación anterior.
+
+**Medido en Mekasa** con las sesiones A y B: modelo entrenado en las rondas 1–2 y la ronda 3 reproducida cuadro a cuadro, con sus parpadeos reales. Acierto 2×2 por cuadro en blancos diagonales:
+
+| Sesión | Variante | Todos los cuadros | ≤ 1 s después de un parpadeo | Error p90 después de un parpadeo |
+| --- | --- | --- | --- | --- |
+| A | Media móvil que se reinicia (original) | 98,0 % | 88,3 % | 0,272 |
+| A | Más congelamiento de 0,3 s (antes de hoy) | 100 % | 100 % | 0,178 |
+| A | **Suavizado robusto + congelamiento** | 100 % | 100 % | **0,162** |
+| B | Media móvil que se reinicia (original) | 67,9 % | 75,9 % | 0,602 |
+| B | Más congelamiento de 0,3 s (antes de hoy) | 70,4 % | 82,8 % | 0,310 |
+| B | **Suavizado robusto + congelamiento** | **84,3 %** | **100 %** | **0,230** |
+
+El factor 1,35 se comparó con 1,0 y 1,25 sobre los mismos datos (B, todos los cuadros: 78,6 / 81,8 / 84,3 %). Elegido sobre estas mismas sesiones: confirmar en otra.
+
+**Rango de distancia.** Antes, si se movía mucho, el tablero dejaba de leer o se reajustaba enseguida:
+
+| Antes | Ahora |
+| --- | --- |
+| Ancho de rostro aceptado 0,25–0,45 de la imagen | 0,16–0,62 (`min_face_width`, `max_face_width`) |
+| Compensación de distancia limitada a 0,8–1,25 | 0,65–1,55 |
+| Reajuste automático con 13 % de cambio de distancia, 0,08 de desplazamiento o 10° de giro | 25 %, 0,10 y 14°: los cambios menores los absorbe la compensación |
+
+La compensación de distancia sigue siendo una hipótesis de ingeniería. Las sesiones grabadas son a una sola distancia, así que el rango nuevo **no está medido**. A rostros chicos (lejos), los puntos del iris y las imágenes del ojo tienen menos píxeles y más ruido.
+
 ## Qué es desarrollo propio y qué es de terceros
 
 | Parte | De quién | Qué hace |

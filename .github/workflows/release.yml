@@ -6,7 +6,7 @@ name: Release (Windows)
 
 on:
   push:
-    branches: [main]
+    branches: [main, "release/**"] # release/** only builds (artifact to test), never publishes
     tags: ["v*"]
   workflow_dispatch:
 

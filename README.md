@@ -266,7 +266,27 @@ uv run mekasa-region-evaluation
 
 Opciones: `-Ojo LEFT|RIGHT`, `-Dwell 1.2`, `-Confirmar`, `-Ventana`, `-Repeticiones 3` (prueba).
 
-### Tablero de comunicación (SÍ / NO / AGUA / AYUDA)
+### Tablero de conversación (armar mensajes completos con la mirada)
+
+Por defecto el tablero ya no se limita a SÍ / NO / AGUA / AYUDA. Cada pantalla tiene 4 casilleros, la grilla 2×2 que tiene precisión medida. Con ellos la persona navega menús, arma un mensaje y lo dice.
+
+| Pantalla | Casilleros |
+| --- | --- |
+| Inicio | **SÍ** y **NO** (se dicen al instante), **HABLAR** (o **MENSAJE (n)** si hay un mensaje armado), **URGENTE** |
+| Hablar | **NECESITO** (comer y beber, mi cuerpo, mi entorno), **CÓMO ESTOY** (me duele, tengo, ánimo), **MÁS…** (preguntas y respuestas, personas, tiempo libre), **VOLVER** |
+| Me duele → zona | después pregunta **UN POCO / BASTANTE / MUCHO** (o **SIGUIENTE**) |
+| Mensaje | **DECIR** (dice todo el mensaje), **AGREGAR**, **BORRAR ÚLTIMO**, **INICIO** |
+| Urgente | Al entrar dice "¡Necesito ayuda urgente! Vengan, por favor." y suena una alarma. Detalle: **NO PUEDO RESPIRAR**, **DOLOR MUY FUERTE**, **ME SIENTO MUY MAL** |
+
+Ejemplo: HABLAR → CÓMO ESTOY → ME DUELE → CABEZA → MUCHO → AGREGAR → NECESITO → COMER Y BEBER → AGUA → DECIR. El tablero dice: "Me duele la cabeza, mucho. Necesito agua."
+
+* **El vocabulario se edita sin programar** en [`config/vocabulario.txt`](config/vocabulario.txt). Cada línea es `ETIQUETA | texto | opciones`; la sangría arma los submenús. Hay como máximo 3 opciones por menú (el cuarto casillero es VOLVER) y `{o|a}` resuelve el género. Al abrir, el tablero valida el archivo y, si hay un error, dice en qué línea está.
+* **Género:** `gender = "f"` en `config/communication.toml`, o `-Genero F` en el script.
+* **Seguridad:** el casillero recién elegido no puede volver a dispararse hasta que la mirada salga de él. Así, una mirada fija nunca encadena menús.
+* **Privacidad:** el reporte cuenta selecciones y mensajes dichos, pero no guarda su contenido.
+* **El tablero simple** sigue disponible con `--interface simple` o `-Simple`.
+
+### Tablero de comunicación (opciones comunes)
 
 ```powershell
 uv run mekasa-board                       # calibra y abre el tablero a pantalla completa
@@ -289,7 +309,7 @@ uv run mekasa-board --simulate            # replay sin cámara de todos los bloq
   * aprende un poco de cada selección hecha con la mirada; `C`, dentro de los 5 s, la borra y la descarta.
 * **Configuración:** `config/communication.toml`. Contiene dwell, enfriamiento, recuperación, edad máxima de frame, confirmación, frases, voz y las opciones de precisión (`calibrate_at_start`, `auto_realign`, `implicit_recalibration`, `distance_compensation`, `camera_position`).
 * **Acceso directo:** las teclas `1`–`4` y el clic del mouse funcionan siempre, aun sin calibración.
-* **Otros controles:** `ESPACIO` pausa, `A` hace un ajuste rápido, `K` recalibra, `ENTER` confirma la opción pendiente, `M` cambia el modo ocular, `G` muestra el punto de mirada, `C` borra el mensaje y `ESC` sale.
+* **Otros controles:** `RETROCESO` vuelve un nivel, `H` va al inicio, `ESPACIO` pausa, `A` hace un ajuste rápido, `K` recalibra, `ENTER` confirma la opción pendiente, `M` cambia el modo ocular, `G` muestra el punto de mirada, `C` borra el mensaje y `ESC` sale.
 * **Parpadeos:** caídas de señal ocular de hasta 0,2 s congelan el progreso en lugar de cancelarlo; las pérdidas de cámara, imagen o rostro cancelan siempre.
 * **Bloqueos de seguridad:** una cámara desconectada, un frame vencido, tracking inválido, el ojo requerido no visible, la pausa o un cambio de modo vacían el foco y la confirmación pendiente.
 * **Si falla la voz:** el mensaje confirmado queda visible.

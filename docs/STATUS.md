@@ -6,6 +6,7 @@
 
 1. **Captura y detección (hito 1).** `uv run mekasa-experiment-001 --no-display` corre en este equipo. Hay más detalles en `research/EVIDENCE.md`.
 2. **Tablero de comunicación (hito 2, parcial).** `uv run mekasa-board` abre un tablero SÍ / NO / AGUA / AYUDA a pantalla completa.
+   - Por defecto es un tablero de conversación (menús para armar mensajes completos, URGENTE en un paso); `--interface simple` deja SÍ / NO / AGUA / AYUDA.
    - Empieza con una calibración de ~35 s en la misma sesión y muestra el acierto validado por modo ocular. `--test N` agrega una prueba con consignas sobre el tablero real.
    - Usa dwell ajustable (900 ms por defecto), progreso visible, histéresis, enfriamiento y rearme al salir de la opción.
    - Tiene confirmación opcional (`--confirm`) y modos oculares `--eye-mode BOTH|LEFT|RIGHT`. El modo binario se quitó.
@@ -122,6 +123,24 @@ Limitaciones:
 - La única medida honesta del tablero es `mekasa.ps1 prueba`.
 - Son dos sesiones de un equipo y no está claro si fue una persona o dos.
 
+## Tablero de conversación (2026-11-16, noche)
+
+Pedido: comunicar más que SÍ / NO / AGUA / AYUDA, con necesidades reales, y armar un mensaje completo antes de decirlo.
+
+| Parte | Detalle | Estado |
+| --- | --- | --- |
+| Contenido | Necesidades más citadas para pacientes que no pueden hablar: dolor y su ubicación, sed y boca seca, aspiración, posición, frío y calor, baño, miedo, familia, información sobre su estado, ocio y afecto. Fuentes en `research/EVIDENCE.md` | publicado (resúmenes de búsqueda, no leídos completos) |
+| Navegación | Grilla 2×2 en todas las pantallas (la única con precisión medida), 3 opciones + VOLVER, submenús MÁS… | implementado |
+| Mensaje | Frases con prefijo de categoría ("Me duele" + "la cabeza"), intensidad opcional, varias frases antes de DECIR, BORRAR ÚLTIMO | implementado; tests unitarios y de punta a punta |
+| Urgente | Una sola selección desde Inicio: voz + alarma local; detalles también inmediatos | implementado; test de punta a punta |
+| Vocabulario editable | `config/vocabulario.txt`, validado con número de línea | implementado |
+
+Sin medir con persona:
+
+- **Tiempo por mensaje.** "Me duele la cabeza, mucho." son 6 selecciones más DECIR. Estimado entre 12 y 20 s con dwell de 0,9 s: es una hipótesis.
+- **Fatiga ocular.** Según la encuesta en ELA, es la causa principal de abandono del seguimiento ocular.
+- **Disparos accidentales de URGENTE.** Están en un solo paso a propósito; si molestan, se puede pedir confirmación solo para URGENTE (no está implementado).
+
 ## Resultados por modo con baseline y modelo adaptado
 
 Baseline Ridge por modo: ver la sesión del 2026-11-16 arriba. **No hay modelo adaptado todavía** (hito 3). El resultado anterior es del 2026-09-21, en modo binocular y con distancia mayor:
@@ -140,7 +159,8 @@ Esto **no alcanza** para usar el sistema como CAA. Para uso real, el acceso dire
    ```
    - Hay que anotar el acierto por opción (en pantalla y en `work/communication/board-session-latest.json` → `test`) y qué modelo eligió cada modo (`calibration.fits.*.kind`).
    - Si abajo sigue fallando con `kind = landmarks`, revisar la luz sobre los ojos. Si falla con `appearance` o `hybrid`, probar `-Ojo LEFT` o `-Ojo RIGHT` y subir la cámara o bajar la pantalla.
-2. **Falsos positivos y dwell.** Un minuto de mirada libre por perfil: `-Dwell 0.45`, `0.9` y `1.2`, contando mensajes no deseados.
+2. **Tablero de conversación con la persona.** Pedir 5 mensajes concretos (p. ej. "Me duele la espalda, bastante") y medir el tiempo y los errores por mensaje. Anotar qué falta en el vocabulario y editar `config/vocabulario.txt`.
+3. **Falsos positivos y dwell.** Un minuto de mirada libre por perfil: `-Dwell 0.45`, `0.9` y `1.2`, contando mensajes no deseados.
 3. **Calibración corta.** Comparar 3, 5 y 9 puntos no colineales (`config/experiment-001.toml`, `[targets.*]`). Recalibrar solo una región u ojo, y guardar el perfil asociado a persona, modo, cámara y pantalla.
 4. **Hito 3: estimador neuronal.** Una MLP pequeña en CPU sobre las features, con máscara por ojo, o una corrección residual del Ridge. Requiere entrenamiento reproducible, promoción solo si mejora en blancos apartados, y rollback atómico. Hay que justificar la dependencia (numpy puro o PyTorch/ONNX; ver el ADR-006 histórico).
 5. **Pendientes de UI.**

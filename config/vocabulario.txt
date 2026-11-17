@@ -1,0 +1,97 @@
+# Vocabulario de Mekasa: lo que la persona puede decir navegando con los ojos.
+#
+# Cómo editarlo (lo puede hacer la familia o el equipo de salud):
+#   * Cada línea es:  ETIQUETA | texto que se dice | opciones
+#   * La sangría (2 espacios por nivel) arma el menú: lo que está debajo y más adentro
+#     es un submenú de la línea anterior.
+#   * Cada menú tiene como máximo 3 opciones: el cuarto casillero es siempre "VOLVER".
+#     Para más opciones, usar un submenú "MÁS…".
+#   * El texto de una categoría se antepone a lo que se elija adentro:
+#       ME DUELE | Me duele   +   CABEZA | la cabeza   ->  "Me duele la cabeza"
+#   * {o|a} se elige según el género configurado en config/communication.toml.
+#   * Opciones: "intensidad" pregunta un poco / bastante / mucho después de elegir.
+#   * Las líneas que empiezan con # son comentarios.
+#
+# Fuentes del contenido (ver research/EVIDENCE.md): necesidades más frecuentes de pacientes
+# que no pueden hablar en terapia intensiva (dolor, sed y boca seca, aspiración, posición,
+# temperatura, baño, miedo, familia, información sobre su estado) y uso diario de CAA por
+# mirada en ELA (conversación con familia y cuidadores, ocio). Es un punto de partida: se
+# adapta a cada persona.
+
+@urgente | ¡Necesito ayuda urgente! Vengan, por favor.
+  NO PUEDO RESPIRAR | No puedo respirar
+  DOLOR MUY FUERTE | Tengo un dolor muy fuerte
+  ME SIENTO MUY MAL | Me siento muy mal
+
+@intensidad
+  UN POCO | , un poco
+  BASTANTE | , bastante
+  MUCHO | , mucho
+
+@hablar
+  NECESITO | Necesito
+    COMER Y BEBER |
+      AGUA | agua
+      COMER | comer algo
+      MOJAR LA BOCA | que me mojen la boca
+    MI CUERPO |
+      CAMBIAR DE POSICIÓN | que me cambien de posición
+      IR AL BAÑO | ir al baño
+      MÁS… |
+        ASPIRAR | que me aspiren las secreciones
+        RASCAR | que me rasquen
+        LIMPIARME | que me limpien
+    MI ENTORNO |
+      ANTEOJOS | mis anteojos
+      MANTA | una manta
+      LUZ | que cambien la luz
+  CÓMO ESTOY |
+    ME DUELE | Me duele
+      CABEZA | la cabeza | intensidad
+      PECHO | el pecho | intensidad
+      MÁS… |
+        PANZA | la panza | intensidad
+        ESPALDA | la espalda | intensidad
+        MÁS… |
+          GARGANTA | la garganta | intensidad
+          BRAZOS | los brazos | intensidad
+          PIERNAS | las piernas | intensidad
+    TENGO |
+      FRÍO | Tengo frío
+      CALOR | Tengo calor
+      MÁS… |
+        NÁUSEAS | Tengo náuseas
+        PICAZÓN | Tengo picazón
+        SUEÑO | Tengo sueño
+    ÁNIMO |
+      ESTOY BIEN | Estoy bien
+      TENGO MIEDO | Tengo miedo
+      MÁS… |
+        ESTOY TRISTE | Estoy triste
+        ESTOY {CANSADO|CANSADA} | Estoy {cansado|cansada}
+        ESTOY {ABURRIDO|ABURRIDA} | Estoy {aburrido|aburrida}
+  MÁS… |
+    PREGUNTAS |
+      ¿QUÉ HORA ES? | ¿Qué hora es?
+      ¿CÓMO ESTOY? | ¿Cómo estoy? Quiero saber qué me pasa
+      MÁS… |
+        ¿QUIÉN VIENE? | ¿Quién viene hoy?
+        ¿DÓNDE ESTOY? | ¿Dónde estoy?
+        RESPONDER… |
+          NO SÉ | No sé
+          MÁS TARDE | Más tarde
+          REPETIR | ¿Me lo repite, por favor?
+    PERSONAS |
+      MI FAMILIA | Quiero ver a mi familia
+      EL MÉDICO | Quiero hablar con el médico
+      CARIÑO |
+        TE QUIERO | Te quiero
+        GRACIAS | Gracias
+        PERDÓN | Perdón
+    TIEMPO LIBRE | Quiero
+      TELE | ver la tele
+      MÚSICA | escuchar música
+      MÁS… |
+        QUE ME LEAN | que me lean algo
+        CHARLAR | charlar un rato
+        DESCANSAR | descansar

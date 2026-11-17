@@ -10,8 +10,13 @@ Without a usable calibration the board still opens and works through direct acce
 1-4, mouse click) with gaze selection disabled, so a person is never left without a way to
 communicate while setup is incomplete.
 
-Keys: 1-4 select directly - ENTER confirm pending option - SPACE pause/resume - A re-align -
-K recalibrate - M cycle eye mode - G show/hide gaze point - C clear message - ESC/Q quit.
+The default interface is the conversation board (tracking/conversation.py): SÍ / NO /
+HABLAR / URGENTE at home, menus from config/vocabulario.txt to compose a full message, and
+DECIR to speak it. ``--interface simple`` keeps the original SÍ / NO / AGUA / AYUDA board.
+
+Keys: 1-4 select directly - ENTER confirm pending option - BACKSPACE back - H home -
+SPACE pause/resume - A re-align - K recalibrate - M cycle eye mode - G show/hide gaze point -
+C clear message - ESC/Q quit.
 """
 
 from __future__ import annotations
@@ -38,11 +43,14 @@ from mekasa_gaze.core.config import GuidedValidationConfig
 from mekasa_gaze.core.domain import CameraFrame, EyeState, FeatureObservation, TrackingState
 from mekasa_gaze.core.eye_mode import EyeMode, eye_signal_usable
 from mekasa_gaze.core.interfaces import FeatureExtractor, SpeechBackend
+from mekasa_gaze.core.vocabulary import load_vocabulary
 from mekasa_gaze.runners.live_evaluation import PredictionSmoother
+from mekasa_gaze.services.alarm import play_alarm
 from mekasa_gaze.services.runtime import environment, source_revision
 from mekasa_gaze.services.speech import create_speech_backend
 from mekasa_gaze.tracking.calibration import load_calibration_model
 from mekasa_gaze.tracking.communication import CommunicationSession, GazeInput, SessionUpdate
+from mekasa_gaze.tracking.conversation import Navigator
 from mekasa_gaze.tracking.gaze_model import (
     FitResult,
     fit_personal_model,
@@ -603,6 +611,17 @@ def run_board(
     area = board_area(width, height)
     split = board_to_screen((0.5, 0.5), area)
     keys = [option.key for option in session.layout.options]
+    navigator: Navigator | None = None
+    if communication.interface == "conversation":
+        layout = session.layout
+        navigator = Navigator(
+            load_vocabulary(Path(communication.vocabulary), gender=communication.gender),
+            yes_phrase=layout.option("YES").phrase,
+            no_phrase=layout.option("NO").phrase,
+            yes_label=layout.option("YES").label,
+            no_label=layout.option("NO").label,
+        )
+    conversation_stats = {"selections": 0, "messages_spoken": 0}
     speech = create_speech_backend(
         enabled=bool(speech_settings.get("enabled", True)),
         required=bool(speech_settings.get("required", False)),
@@ -907,8 +926,14 @@ def run_board(
                     calibration = start_calibration()
                     phase = Phase.CALIBRATING
                     continue
+                elif key == 8 and navigator is not None and phase is Phase.BOARD:
+                    navigator.back()  # BACKSPACE: one level up
+                elif key in (ord("h"), ord("H")) and navigator is not None:
+                    navigator.home()
                 elif key in (ord("c"), ord("C")):
                     session.clear_message()
+                    if navigator is not None:
+                        navigator.last_said = None
                     if online.retract_recent(now):
                         stats["implicit_samples_retracted"] += 1
                         pipeline.set_correction(online.correction(now))
@@ -955,9 +980,19 @@ def run_board(
                         prompt = "Prueba: espere la próxima consigna"
 
                 if update.confirmed is not None:
-                    if phase is not Phase.TEST:
-                        speech_ok = speak_safely(speech, update.confirmed.phrase)
+                    spoken: str | None = None
+                    if phase is not Phase.TEST and navigator is not None:
+                        outcome = navigator.select(keys.index(update.confirmed.key))
+                        conversation_stats["selections"] += 1
+                        spoken = outcome.speak
+                        if outcome.alarm and communication.urgent_alarm:
+                            play_alarm()
+                    elif phase is not Phase.TEST:
+                        spoken = update.confirmed.phrase
+                    if spoken:
+                        speech_ok = speak_safely(speech, spoken)
                         speech_failures += 0 if speech_ok else 1
+                        conversation_stats["messages_spoken"] += 1
                     flash, flash_until = update.confirmed, now + 0.8
                     if (
                         phase is Phase.BOARD
@@ -1013,11 +1048,18 @@ def run_board(
                         last.validity.right_eye_state is EyeState.OPEN,
                     )
                     hint = _PLACEMENT_HINTS.get(last.placement.state)
+                cells = None
+                location = None
+                shown = update
+                if navigator is not None and phase is Phase.BOARD:
+                    cells = [(cell.label, cell.kind.value) for cell in navigator.cells()]
+                    location = navigator.breadcrumb()
+                    shown = replace(update, message=navigator.message_line())
                 canvas = render_board(
                     width,
                     height,
                     session.layout,
-                    update,
+                    shown,
                     eye_mode=eye_mode,
                     high_contrast=communication.high_contrast,
                     gaze_point=last.screen_point if (show_gaze and last) else None,
@@ -1030,6 +1072,8 @@ def run_board(
                     else None,
                     notice=notice,
                     prompt=prompt,
+                    cells=cells,
+                    location=location,
                 )
                 cv2.imshow(_WINDOW_NAME, canvas)
     finally:
@@ -1074,6 +1118,7 @@ def run_board(
             },
             "speech_failures": speech_failures,
             "adaptation": stats,
+            "conversation": conversation_stats,
             "session": session.stats.as_dict(),
         },
         "privacy": {
@@ -1145,6 +1190,15 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--dwell", type=float, default=None, help="Override dwell seconds")
     parser.add_argument("--confirm", action=argparse.BooleanOptionalAction, default=None)
+    parser.add_argument(
+        "--interface",
+        choices=("conversation", "simple"),
+        default=None,
+        help="conversation: menus to compose messages (default); simple: SÍ/NO/AGUA/AYUDA",
+    )
+    parser.add_argument(
+        "--gender", choices=("m", "f"), default=None, help="Grammatical gender of phrases"
+    )
     parser.add_argument("--fullscreen", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument(
         "--calibrate",
@@ -1194,6 +1248,10 @@ def main(argv: list[str] | None = None) -> int:
             overrides["confirmation_required"] = args.confirm
         if args.calibrate is not None:
             overrides["calibrate_at_start"] = args.calibrate
+        if args.interface is not None:
+            overrides["interface"] = args.interface
+        if args.gender is not None:
+            overrides["gender"] = args.gender
         if args.test < 0 or args.test > 5:
             raise ValueError("--test must be between 0 and 5")
         if args.test > 0:

@@ -10,6 +10,7 @@ looking at the bands never selects anything.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import cv2
@@ -30,6 +31,19 @@ _MARGIN = 0.02
 _BOARD_TOP = STATUS_FRACTION + MESSAGE_FRACTION + 0.015
 
 Color = tuple[int, int, int]
+CellView = tuple[str, str]  # (label, kind) - kind names from tracking.conversation.CellKind
+
+# Card fill per cell kind (BGR), white text on all of them (contrast >= 7:1 except NAV ~ 6:1).
+_KIND_FILL: dict[str, Color] = {
+    "ANSWER": (70, 38, 20),
+    "MENU": (70, 38, 20),
+    "PHRASE": (95, 70, 10),
+    "NAV": (70, 70, 70),
+    "SPEAK": (40, 115, 30),
+    "DELETE": (20, 75, 150),
+    "URGENT": (30, 30, 175),
+    "EMPTY": (28, 28, 28),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,6 +155,8 @@ def status_text(
     eye_mode: EyeMode,
     hint: str | None = None,
     notice: str | None = None,
+    labels: Mapping[str, str] | None = None,
+    location: str | None = None,
 ) -> str:
     """Short Spanish status line for the person and their support.
 
@@ -160,15 +176,19 @@ def status_text(
     if state is SessionState.RECOVERING:
         return "Recuperando señal…"
     if state is SessionState.FOCUSING and update.focused is not None:
-        return f"Mirando {update.focused.label}…"
+        label = (labels or {}).get(update.focused.key, update.focused.label)
+        return f"Mirando {label.rstrip(' \u203a')}…"
     if state is SessionState.AWAITING_CONFIRMATION and update.pending is not None:
-        return f"Para confirmar {update.pending.label}: mire afuera y vuelva"
+        label = (labels or {}).get(update.pending.key, update.pending.label)
+        return f"Para confirmar {label.rstrip(' \u203a')}: mire afuera y vuelva"
     if state is SessionState.COOLDOWN:
         return "Confirmado"
     if state is SessionState.AWAITING_EXIT:
         return "Confirmado · aparte la mirada para elegir otra vez"
     if notice:
         return notice
+    if location:
+        return f"{location} · mire una opción"
     return f"Listo · {_MODE_TEXT[eye_mode]}: mire una opción"
 
 
@@ -188,6 +208,8 @@ def render_board(
     aligned: bool | None = None,
     notice: str | None = None,
     prompt: str | None = None,
+    cells: Sequence[CellView] | None = None,
+    location: str | None = None,
 ) -> npt.NDArray[np.uint8]:
     """Render one frame of the board.
 
@@ -206,7 +228,13 @@ def render_board(
         aligned: Whether a session alignment is active (None hides the indicator).
         notice: Replaces the idle status line (placement change since calibration, ...).
         prompt: Test-mode instruction shown in the message bar instead of the message.
+        cells: Per-position (label, kind) overrides for the conversation board.
     """
+    labels = (
+        {option.key: cell[0] for option, cell in zip(layout.options, cells, strict=False)}
+        if cells
+        else None
+    )
     palette = HIGH_CONTRAST if high_contrast else SOFT
     canvas = np.empty((height, width, 3), dtype=np.uint8)
     canvas[:] = palette.background
@@ -222,7 +250,7 @@ def render_board(
     indicators_w = int(width * 0.30)
     draw_text(
         canvas,
-        status_text(update, eye_mode, hint, notice),
+        status_text(update, eye_mode, hint, notice, labels, location),
         (margin_px, 0, width - indicators_w, status_h),
         palette.warning
         if (lost or (notice and update.state is SessionState.READY))
@@ -238,8 +266,9 @@ def render_board(
             canvas, (margin_px, status_h - 6), (margin_px + bar_w, status_h - 2), palette.good, -1
         )
 
-    for option in layout.options:
-        _draw_option(canvas, option, update, area, palette, flash)
+    for index, option in enumerate(layout.options):
+        label, kind = cells[index] if cells and index < len(cells) else (option.label, "")
+        _draw_option(canvas, option, update, area, palette, flash, label, kind)
 
     message_top = status_h
     message_bottom = status_h + int(height * MESSAGE_FRACTION)
@@ -483,6 +512,8 @@ def _draw_option(
     area: tuple[float, float, float, float],
     palette: Palette,
     flash: BoardOption | None,
+    label: str,
+    kind: str = "",
 ) -> None:
     height, width = canvas.shape[:2]
     left, top = board_to_screen((option.bounds[0], option.bounds[1]), area)
@@ -493,9 +524,13 @@ def _draw_option(
     confirmed = (update.confirmed is not None and update.confirmed.key == option.key) or (
         flash is not None and flash.key == option.key
     )
-    border = palette.card
+    base = _KIND_FILL.get(kind, palette.card) if kind else palette.card
+    border = base
     border_width = 4
-    fill = palette.card
+    fill = base
+    if kind == "EMPTY":
+        _filled_rounded_rectangle(canvas, (box[0], box[1]), (box[2], box[3]), base, 28)
+        return
     if confirmed:
         border, border_width, fill = palette.confirmed, 14, palette.confirmed
     elif pending:
@@ -519,15 +554,26 @@ def _draw_option(
             palette.progress,
             min(22, max(1, fill_height // 2)),
         )
-    label_box = (inner[0], inner[1], inner[2], inner[3])
-    draw_text(
-        canvas,
-        option.label,
-        label_box,
-        palette.card_text,
-        max_size=int((inner[3] - inner[1]) * 0.5),
-        fill=0.75,
-    )
+    lines = _wrap(label)
+    card_h = inner[3] - inner[1]
+    if len(lines) == 1:
+        boxes = [inner]
+    else:  # two lines, kept close to the vertical centre of the card
+        middle = inner[1] + card_h // 2
+        pad = card_h // 8
+        boxes = [
+            (inner[0], inner[1] + pad, inner[2], middle),
+            (inner[0], middle, inner[2], inner[3] - pad),
+        ]
+    for line, box in zip(lines, boxes, strict=True):
+        draw_text(
+            canvas,
+            line,
+            box,
+            palette.card_text,
+            max_size=int(card_h * (0.5 if len(lines) == 1 else 0.34)),
+            fill=0.75 if len(lines) == 1 else 0.9,
+        )
     if pending:
         draw_text(
             canvas,
@@ -537,6 +583,18 @@ def _draw_option(
             max_size=28,
             bold=False,
         )
+
+
+def _wrap(label: str, single_line_max: int = 11) -> list[str]:
+    """Split long multi-word labels into two balanced lines (bigger letters than one line)."""
+    words = label.split()
+    if len(label) <= single_line_max or len(words) < 2:
+        return [label]
+    best = min(
+        range(1, len(words)),
+        key=lambda cut: abs(len(" ".join(words[:cut])) - len(" ".join(words[cut:]))),
+    )
+    return [" ".join(words[:best]), " ".join(words[best:])]
 
 
 __all__ = [

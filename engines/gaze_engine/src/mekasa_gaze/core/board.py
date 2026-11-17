@@ -143,6 +143,11 @@ class CommunicationConfig:
     implicit_recalibration: bool = True
     distance_compensation: bool = True
     camera_position: tuple[float, float] = (0.5, -0.02)
+    # Conversation board (menus to compose full messages) or the simple 4-phrase board.
+    interface: str = "conversation"
+    vocabulary: str = "config/vocabulario.txt"
+    gender: str = "m"
+    urgent_alarm: bool = True
 
     def validate(self) -> None:
         """Raise ``ValueError`` for unsafe or inconsistent settings."""
@@ -162,6 +167,10 @@ class CommunicationConfig:
             raise ValueError("confirmation_window_seconds must be positive")
         if not (0.0 <= self.camera_position[0] <= 1.0 and -0.5 <= self.camera_position[1] <= 1.5):
             raise ValueError("camera_position must be a screen-normalized point near the screen")
+        if self.interface not in ("conversation", "simple"):
+            raise ValueError("interface must be 'conversation' or 'simple'")
+        if self.gender not in ("m", "f"):
+            raise ValueError("gender must be 'm' or 'f'")
 
     def board(self) -> BoardLayout:
         """Build the configured board layout."""
@@ -210,6 +219,10 @@ class CommunicationConfig:
                 section.get("distance_compensation", defaults.distance_compensation)
             ),
             camera_position=_point(section.get("camera_position", defaults.camera_position)),
+            interface=str(section.get("interface", defaults.interface)),
+            vocabulary=str(section.get("vocabulary", defaults.vocabulary)),
+            gender=str(section.get("gender", defaults.gender)).lower(),
+            urgent_alarm=bool(section.get("urgent_alarm", defaults.urgent_alarm)),
         )
         config.validate()
         return config

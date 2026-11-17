@@ -44,6 +44,17 @@ distance_compensation = true
 # Camera position in screen-normalized coordinates (x, y). Default: top-centre bezel.
 camera_position = [0.5, -0.02]
 
+# --- Conversation board --------------------------------------------------------------------
+# "conversation": menus to compose full messages (needs, how I feel, urgent, questions,
+# people, free time) from config/vocabulario.txt, editable by family and clinicians.
+# "simple": the original SÍ / NO / AGUA / AYUDA board.
+interface = "conversation"
+vocabulary = "config/vocabulario.txt"
+# Grammatical gender for phrases like "Estoy cansado/cansada": "m" or "f".
+gender = "m"
+# Beep pattern (local speaker) together with the spoken urgent message.
+urgent_alarm = true
+
 [speech]
 enabled = true
 # If no local voice exists, the board still works and the confirmed message stays on screen.

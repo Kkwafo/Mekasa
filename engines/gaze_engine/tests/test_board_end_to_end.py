@@ -160,7 +160,9 @@ def test_board_session_calibrates_tests_and_adapts(
         canvas_height=360,
     )
     area = board_view.board_area(640, 360)
-    communication = CommunicationConfig.load(ROOT / "config" / "communication.toml")
+    communication = replace(
+        CommunicationConfig.load(ROOT / "config" / "communication.toml"), interface="simple"
+    )
     gap = board_view.board_to_screen((0.5, 0.5), area)
 
     # Free-use script after the test: (start, end, target or None for the gap, face width).
@@ -237,3 +239,69 @@ def test_board_session_calibrates_tests_and_adapts(
     assert speech.spoken.count("Quiero agua") >= 2  # bottom row still works after moving
     assert report["privacy"]["eye_patches_persisted"] is False
     assert report["configuration"]["eye_mode_at_end"] == EyeMode.BOTH.value
+
+
+def test_conversation_board_composes_and_speaks_a_full_message(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Navigate HABLAR > CÓMO ESTOY > ME DUELE > CABEZA > MUCHO > DECIR, then URGENTE."""
+    world = World()
+    speech = FakeSpeech()
+    _install_fakes(monkeypatch, world, speech)
+    alarms: list[float] = []
+    monkeypatch.setattr(board, "play_alarm", lambda: alarms.append(world.t) or True)
+    guided = replace(
+        GuidedValidationConfig.load(ROOT / "config" / "experiment-001.toml"),
+        canvas_width=640,
+        canvas_height=360,
+    )
+    area = board_view.board_area(640, 360)
+    gap = board_view.board_to_screen((0.5, 0.5), area)
+    communication = CommunicationConfig.load(ROOT / "config" / "communication.toml")
+    assert communication.interface == "conversation"
+    plan = ["HABLAR", "CÓMO ESTOY \u203a", "ME DUELE \u203a", "CABEZA", "MUCHO", "DECIR", "URGENTE"]
+    state = {"step": 0, "cells": None, "away_until": 0.0}
+    seen_cells: list[list[str]] = []
+
+    def render_board_hook(*args: Any, **kwargs: Any) -> Any:
+        cells = kwargs.get("cells")
+        labels = [label for label, _ in cells] if cells else None
+        if labels is not None and labels != state["cells"]:
+            if state["cells"] is not None:
+                state["step"] += 1  # the screen changed: the last choice was taken
+                state["away_until"] = world.t + 0.8  # look away (rearm) before the next one
+            state["cells"] = labels
+            seen_cells.append(labels)
+        if state["step"] >= len(plan) or world.t > 2000.0:
+            world.keys.append(27)
+        elif labels is not None and world.t >= state["away_until"]:
+            target = plan[state["step"]]
+            if target in labels:
+                key = ("YES", "NO", "WATER", "HELP")[labels.index(target)]
+                world.gaze = _center(area, key)
+        else:
+            world.gaze = gap
+        return original(*args, **kwargs)
+
+    original = board.render_board
+    monkeypatch.setattr(board, "render_board", render_board_hook)
+    report = board.run_board(
+        communication=communication,
+        guided_config=guided,
+        calibrations=board.calibration_paths(tmp_path),
+        face_model_path=tmp_path / "unused.task",
+        smoothing_alpha=0.25,
+        speech_settings={},
+        fullscreen=False,
+        calibration_dir=tmp_path,
+    )
+    assert "Me duele la cabeza, mucho." in speech.spoken, (speech.spoken, seen_cells)
+    assert "¡Necesito ayuda urgente! Vengan, por favor." in speech.spoken
+    assert alarms, "urgent must raise the local alarm"
+    assert seen_cells[0] == ["SÍ", "NO", "HABLAR", "URGENTE"]
+    assert ["UN POCO", "BASTANTE", "MUCHO", "SIGUIENTE"] in seen_cells
+    conversation = report["measurement"]["conversation"]
+    assert conversation["messages_spoken"] == 2
+    assert conversation["selections"] == len(plan)
+    assert report["privacy"]["message_history_persisted"] is False
+    assert "cabeza" not in str(report)  # no message content in the report

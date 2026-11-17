@@ -11,7 +11,9 @@
     .\scripts\mekasa.ps1 instalar      # una sola vez
     .\scripts\mekasa.ps1 camara        # ver qué cámara responde
     .\scripts\mekasa.ps1 prueba        # calibra (~35 s) + 8 consignas, mide el acierto real
-    .\scripts\mekasa.ps1 tablero       # calibra (~35 s) y abre SÍ / NO / AGUA / AYUDA
+    .\scripts\mekasa.ps1 tablero       # calibra (~35 s) y abre el tablero de conversación
+    .\scripts\mekasa.ps1 tablero -Genero F      # frases en femenino ("Estoy cansada")
+    .\scripts\mekasa.ps1 tablero -Simple        # tablero simple SÍ / NO / AGUA / AYUDA
     .\scripts\mekasa.ps1 tablero -SinCalibrar   # reutiliza la última calibración + ajuste de 4 puntos
     .\scripts\mekasa.ps1 tablero -Ojo LEFT -Dwell 1.2
     .\scripts\mekasa.ps1 simular       # prueba de seguridad sin cámara
@@ -33,6 +35,11 @@ param(
     [ValidateRange(1, 5)]
     [int]$Repeticiones = 2,
 
+    # Género gramatical de las frases ("Estoy cansado" / "Estoy cansada").
+    [ValidateSet("M", "F")]
+    [string]$Genero = "",
+
+    [switch]$Simple,
     [switch]$Confirmar,
     [switch]$SinCalibrar,
     [switch]$Ventana
@@ -64,12 +71,14 @@ function Get-BoardArguments {
     $arguments = @("--eye-mode", $Ojo)
     if ($Dwell -gt 0) { $arguments += @("--dwell", $Dwell.ToString([System.Globalization.CultureInfo]::InvariantCulture)) }
     if ($Confirmar) { $arguments += "--confirm" }
+    if ($Genero) { $arguments += @("--gender", $Genero.ToLower()) }
+    if ($Simple) { $arguments += @("--interface", "simple") }
     if ($SinCalibrar) { $arguments += "--no-calibrate" }
     if ($Ventana) { $arguments += "--no-fullscreen" }
     return $arguments
 }
 
-$keys = "Teclas: 1-4 elegir · ESPACIO pausa · A reajustar · K recalibrar · M cambiar ojo · G ver mirada · C borrar · ESC salir"
+$keys = "Teclas: 1-4 elegir · RETROCESO volver · H inicio · ESPACIO pausa · A reajustar · K recalibrar · M cambiar ojo · G ver mirada · C borrar · ESC salir"
 
 switch ($Accion) {
     "instalar" {

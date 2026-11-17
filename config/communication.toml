@@ -55,6 +55,20 @@ gender = "m"
 # Beep pattern (local speaker) together with the spoken urgent message.
 urgent_alarm = true
 
+# --- How an option is chosen ----------------------------------------------------------------
+# "dwell": look at an option for dwell_seconds.
+# "blink": look at an option until it is ready (blink_min_focus_seconds), then blink twice.
+#          Nothing is ever chosen by time alone. Starts on standby: blink 4 times to start.
+selection_mode = "dwell"
+# 4 blinks in a row start/stop reading (both modes). SPACE does the same from the keyboard.
+blink_toggle = true
+# Engineering hypotheses, to adjust with the person:
+blink_min_focus_seconds = 0.4         # stable gaze on the option before the blinks
+blink_selection_window_seconds = 3.0  # the blinks must end within this time after looking
+blink_min_closed_seconds = 0.08       # shorter closures are noise
+blink_max_closed_seconds = 0.8        # longer closures are resting the eyes (and cancel)
+blink_max_gap_seconds = 0.8           # max open time between blinks of one sequence
+
 [speech]
 enabled = true
 # If no local voice exists, the board still works and the confirmed message stays on screen.

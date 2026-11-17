@@ -148,6 +148,15 @@ class CommunicationConfig:
     vocabulary: str = "config/vocabulario.txt"
     gender: str = "m"
     urgent_alarm: bool = True
+    # How a looked-at option is chosen: "dwell" (look for dwell_seconds) or "blink"
+    # (look until it is ready, then blink twice). 4 blinks start/stop reading.
+    selection_mode: str = "dwell"
+    blink_toggle: bool = True
+    blink_min_focus_seconds: float = 0.4
+    blink_selection_window_seconds: float = 3.0
+    blink_min_closed_seconds: float = 0.08
+    blink_max_closed_seconds: float = 0.8
+    blink_max_gap_seconds: float = 0.8
 
     def validate(self) -> None:
         """Raise ``ValueError`` for unsafe or inconsistent settings."""
@@ -171,6 +180,16 @@ class CommunicationConfig:
             raise ValueError("interface must be 'conversation' or 'simple'")
         if self.gender not in ("m", "f"):
             raise ValueError("gender must be 'm' or 'f'")
+        if self.selection_mode not in ("dwell", "blink"):
+            raise ValueError("selection_mode must be 'dwell' or 'blink'")
+        if not 0.1 <= self.blink_min_focus_seconds <= 3.0:
+            raise ValueError("blink_min_focus_seconds must be within [0.1, 3]")
+        if not 0.5 <= self.blink_selection_window_seconds <= 10.0:
+            raise ValueError("blink_selection_window_seconds must be within [0.5, 10]")
+        if not 0.0 < self.blink_min_closed_seconds < self.blink_max_closed_seconds <= 2.0:
+            raise ValueError("blink closure limits must satisfy 0 < min < max <= 2 s")
+        if not 0.2 <= self.blink_max_gap_seconds <= 2.0:
+            raise ValueError("blink_max_gap_seconds must be within [0.2, 2]")
 
     def board(self) -> BoardLayout:
         """Build the configured board layout."""
@@ -223,6 +242,18 @@ class CommunicationConfig:
             vocabulary=str(section.get("vocabulary", defaults.vocabulary)),
             gender=str(section.get("gender", defaults.gender)).lower(),
             urgent_alarm=bool(section.get("urgent_alarm", defaults.urgent_alarm)),
+            selection_mode=str(section.get("selection_mode", defaults.selection_mode)).lower(),
+            blink_toggle=bool(section.get("blink_toggle", defaults.blink_toggle)),
+            **{
+                name: float(section.get(name, getattr(defaults, name)))
+                for name in (
+                    "blink_min_focus_seconds",
+                    "blink_selection_window_seconds",
+                    "blink_min_closed_seconds",
+                    "blink_max_closed_seconds",
+                    "blink_max_gap_seconds",
+                )
+            },
         )
         config.validate()
         return config

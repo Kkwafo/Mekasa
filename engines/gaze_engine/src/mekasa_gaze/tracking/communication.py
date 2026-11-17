@@ -10,6 +10,13 @@ It is deterministic and clock-injected so every safety rule is testable without 
 * after a confirmation the same option is not re-armed until gaze leaves it (plus cooldown);
 * focus, (optional) confirmation and emission are separate, observable states.
 
+Selection modes: ``dwell`` confirms after a fixed fixation time. ``blink`` never confirms by
+time: a stable fixation *arms* the option and :meth:`CommunicationSession.select_by_blink`
+(two deliberate blinks, see ``tracking/blinks.py``) confirms it. Blink mode starts on standby
+(paused) until the person starts reading (four blinks) or a caregiver presses SPACE. Hard
+losses (camera, stale frame, face) disarm; an eye-only loss does not, because the blink itself
+closes the eyes.
+
 Direct access (keyboard, pointer or switch) bypasses gaze gates by design: it is a deliberate
 action and the fallback when gaze is not usable.
 """
@@ -84,6 +91,7 @@ class SessionUpdate:
     message: str | None = None
     abstain_reason: AbstainReason | None = None
     recovery_progress: float = 0.0
+    armed: BoardOption | None = None  # blink mode: option ready to be chosen by blinking
 
 
 @dataclass(slots=True)
@@ -99,6 +107,7 @@ class SessionStats:
     pending_discarded: int = 0
     signal_loss_events: int = 0
     dropout_ticks_bridged: int = 0
+    blink_selections_rejected: int = 0
 
     def as_dict(self, *, include_options: bool = False) -> dict[str, object]:
         """Serialize counters for JSON reports.
@@ -115,6 +124,7 @@ class SessionStats:
             "pending_discarded": self.pending_discarded,
             "signal_loss_events": self.signal_loss_events,
             "dropout_ticks_bridged": self.dropout_ticks_bridged,
+            "blink_selections_rejected": self.blink_selections_rejected,
         }
         if include_options:
             result["confirmations_by_option"] = dict(sorted(self.confirmations_by_option.items()))
@@ -144,7 +154,10 @@ class CommunicationSession:
         self._layout = layout or config.board()
         self._eye_mode = config.eye_mode
         self._calibration_mode = calibration_mode
-        self._paused = False
+        self._blink_mode = config.selection_mode == "blink"
+        self._paused = self._blink_mode  # blink mode waits until the person starts reading
+        self._armed: BoardOption | None = None
+        self._armed_seen = float("-inf")
         self._signal_since: float | None = None
         self._was_lost = True
         self._focused: BoardOption | None = None
@@ -173,6 +186,11 @@ class CommunicationSession:
     def paused(self) -> bool:
         """Whether gaze selection is paused."""
         return self._paused
+
+    @property
+    def blink_mode(self) -> bool:
+        """Whether options are chosen by blinking instead of dwell time."""
+        return self._blink_mode
 
     @property
     def gaze_enabled(self) -> bool:
@@ -217,6 +235,28 @@ class CommunicationSession:
     def clear_message(self) -> None:
         """Clear the displayed message (explicit user/caregiver action only)."""
         self._message = None
+
+    def select_by_blink(self, now_seconds: float) -> SessionUpdate | None:
+        """Confirm the armed option after a deliberate double blink.
+
+        Returns None (and counts a rejection) unless: blink mode, gaze enabled, not paused,
+        not in cooldown, and an option was armed by a stable fixation that ended no more than
+        ``blink_selection_window_seconds`` ago.
+        """
+        option = self._armed
+        if (
+            not self._blink_mode
+            or not self.gaze_enabled
+            or self._paused
+            or option is None
+            or now_seconds - self._armed_seen > self._config.blink_selection_window_seconds
+            or now_seconds < self._cooldown_until
+        ):
+            self.stats.blink_selections_rejected += 1
+            return None
+        self._armed = None
+        self._clear_focus()
+        return self._confirm(option, now_seconds, "blink")
 
     def select_direct(self, key: str, now_seconds: float, *, source: str) -> SessionUpdate:
         """Confirm an option through direct access (keyboard, pointer or switch).
@@ -270,7 +310,11 @@ class CommunicationSession:
             if not self._was_lost:
                 self.stats.signal_loss_events += 1
             self._was_lost = True
+            eye_only = reason in (AbstainReason.EYE_SIGNAL, AbstainReason.NO_PREDICTION)
+            armed, armed_seen = self._armed, self._armed_seen
             self._flush()
+            if self._blink_mode and eye_only:  # the blink itself: stay armed
+                self._armed, self._armed_seen = armed, armed_seen
             return self._snapshot(SessionState.SIGNAL_LOST, abstain_reason=reason)
         assert tick.prediction is not None
         point = tick.prediction
@@ -302,6 +346,8 @@ class CommunicationSession:
             self._rearm = None
 
         candidate = self._candidate(point)
+        if self._blink_mode:
+            return self._blink_focus(candidate, now)
         idle_state = SessionState.AWAITING_CONFIRMATION if self._pending else SessionState.READY
         if candidate is None:
             self._cancel_focus()
@@ -329,6 +375,24 @@ class CommunicationSession:
         return self._snapshot(SessionState.AWAITING_CONFIRMATION)
 
     # ------------------------------------------------------------------ helpers
+    def _blink_focus(self, candidate: BoardOption | None, now: float) -> SessionUpdate:
+        """Blink mode: fixation arms an option; time alone never confirms."""
+        if candidate is None:
+            self._cancel_focus()
+            self._armed = None
+            return self._snapshot(SessionState.READY)
+        if candidate is not self._focused:
+            self._cancel_focus()
+            self._focused = candidate
+            self._focus_since = now
+        assert self._focus_since is not None
+        progress = min(1.0, (now - self._focus_since) / self._config.blink_min_focus_seconds)
+        if progress >= 1.0:
+            self._armed, self._armed_seen = candidate, now
+        elif self._armed is not None and self._armed is not candidate:
+            self._armed = None
+        return self._snapshot(SessionState.FOCUSING, progress=progress)
+
     def _bridgeable(self, reason: AbstainReason, now: float) -> bool:
         """Eye-only dropouts shorter than the grace period do not cancel a stable signal.
 
@@ -396,6 +460,7 @@ class CommunicationSession:
         """Discard everything that could lead to an emission. Keeps the visible message."""
         self._cancel_focus()
         self._discard_pending()
+        self._armed = None
         self._signal_since = None
         self._last_valid_at = None
         self._was_lost = True
@@ -420,6 +485,7 @@ class CommunicationSession:
             message=self._message,
             abstain_reason=abstain_reason,
             recovery_progress=recovery_progress,
+            armed=self._armed,
         )
 
 

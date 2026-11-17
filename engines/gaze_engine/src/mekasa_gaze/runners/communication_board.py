@@ -14,6 +14,10 @@ The default interface is the conversation board (tracking/conversation.py): SÍ 
 HABLAR / URGENTE at home, menus from config/vocabulario.txt to compose a full message, and
 DECIR to speak it. ``--interface simple`` keeps the original SÍ / NO / AGUA / AYUDA board.
 
+Selection: ``--selection dwell`` (default) chooses by looking for a time; ``--selection blink``
+arms the looked-at option and two deliberate blinks choose it (never by time). In both modes
+four blinks in a row start/stop reading (tracking/blinks.py).
+
 Keys: 1-4 select directly - ENTER confirm pending option - BACKSPACE back - H home -
 SPACE pause/resume - A re-align - K recalibrate - M cycle eye mode - G show/hide gaze point -
 C clear message - ESC/Q quit.
@@ -48,6 +52,7 @@ from mekasa_gaze.runners.live_evaluation import PredictionSmoother
 from mekasa_gaze.services.alarm import play_alarm
 from mekasa_gaze.services.runtime import environment, source_revision
 from mekasa_gaze.services.speech import create_speech_backend
+from mekasa_gaze.tracking.blinks import SELECT_BLINKS, TOGGLE_BLINKS, BlinkDetector
 from mekasa_gaze.tracking.calibration import load_calibration_model
 from mekasa_gaze.tracking.communication import CommunicationSession, GazeInput, SessionUpdate
 from mekasa_gaze.tracking.conversation import Navigator
@@ -494,7 +499,7 @@ def instructed_order(keys: list[str], repeats: int, rng: random.Random) -> list[
 class InstructedTest:
     """Clock-injected prompt sequence: prompt, wait for a gaze selection or a timeout, pause.
 
-    Only gaze confirmations answer a prompt (keyboard or mouse selections do not count).
+    Only gaze or blink confirmations answer a prompt (keyboard or mouse ones do not count).
     """
 
     order: list[str]
@@ -529,7 +534,7 @@ class InstructedTest:
             self._next_at = now + self.lead_in_seconds
         current = self._current
         if current is not None:
-            if confirmed_key is not None and source == "gaze":
+            if confirmed_key is not None and source in ("gaze", "blink"):
                 current.selected = confirmed_key
                 current.response_seconds = now - current.started_at
             elif now - current.started_at > self.timeout_seconds:
@@ -622,6 +627,13 @@ def run_board(
             no_label=layout.option("NO").label,
         )
     conversation_stats = {"selections": 0, "messages_spoken": 0}
+    blinks = BlinkDetector(
+        eye_mode=eye_mode,
+        min_closed_seconds=communication.blink_min_closed_seconds,
+        max_closed_seconds=communication.blink_max_closed_seconds,
+        max_gap_seconds=communication.blink_max_gap_seconds,
+    )
+    blink_stats = {"select_gestures": 0, "toggle_gestures": 0, "selections": 0}
     speech = create_speech_backend(
         enabled=bool(speech_settings.get("enabled", True)),
         required=bool(speech_settings.get("required", False)),
@@ -697,6 +709,7 @@ def run_board(
             calibration: CalibrationProcedure | None = None
             alignment: AlignmentProcedure | None = None
             alignment_reason: str | None = None
+            resume_after_alignment = True
             fit_results: dict[EyeMode, FitResult] = {}
             summary_since = 0.0
             summary_lines: list[tuple[str, bool | None]] = []
@@ -709,6 +722,16 @@ def run_board(
                 session.set_eye_mode(mode)
                 session.set_calibration(model.eye_mode if model else None)
                 online.reset()
+                blinks.eye_mode = mode
+                blinks.reset()
+
+            def start_reading_state() -> None:
+                """Dwell mode reads at once; blink mode waits on standby for 4 blinks."""
+                if session.blink_mode:
+                    session.pause()
+                    speak_safely(speech, "Para empezar a elegir, parpadee cuatro veces.")
+                else:
+                    session.resume()
 
             def start_calibration() -> CalibrationProcedure:
                 install(eye_mode, None)
@@ -723,6 +746,8 @@ def run_board(
                 nonlocal alignment_reason
                 if not (align and session.gaze_enabled):
                     return None
+                nonlocal resume_after_alignment
+                resume_after_alignment = not session.paused
                 pipeline.set_correction(None)
                 pipeline.monitor.rebase()
                 session.pause()
@@ -735,7 +760,8 @@ def run_board(
                     online.set_anchors(snapshot.samples)
                     stats["alignments_completed"] += 1
                 pipeline.set_correction(online.correction(now))
-                session.resume()
+                if resume_after_alignment:
+                    session.resume()
 
             phase = Phase.BOARD
             if communication.calibrate_at_start:
@@ -837,12 +863,18 @@ def run_board(
                         phase = Phase.CALIBRATING
                         continue
                     if key in (13, 10, ord(" ")) or auto:
-                        session.resume()
                         if test_repeats > 0 and session.gaze_enabled:
+                            session.resume()
                             test = InstructedTest(instructed_order(keys, test_repeats, rng))
                             phase = Phase.TEST
-                            speak_safely(speech, "Prueba. Mire la opción que se indica.")
+                            how = (
+                                "mire la opción que se indica y parpadee dos veces"
+                                if session.blink_mode
+                                else "mire la opción que se indica"
+                            )
+                            speak_safely(speech, f"Prueba. {how[0].upper()}{how[1:]}.")
                         else:
+                            start_reading_state()
                             phase = Phase.BOARD
                         continue
                     footer = "ENTER = continuar · R = repetir calibración · ESC = salir"
@@ -892,6 +924,7 @@ def run_board(
                 # ------------------------------------------------------------ test summary
                 if phase is Phase.TEST_SUMMARY:
                     if key in (13, 10, ord(" ")):
+                        start_reading_state()
                         phase = Phase.BOARD
                         continue
                     if key in (ord("r"), ord("R"), ord("k"), ord("K")):
@@ -903,6 +936,27 @@ def run_board(
                 # ------------------------------------------------------------ board / test
                 tick = gaze_input(last, now, connected)
                 update: SessionUpdate = session.update(tick)
+                gesture = None
+                if fresh and last is not None:
+                    gesture = blinks.update(
+                        now,
+                        last.validity.left_eye_state,
+                        last.validity.right_eye_state,
+                        tracking_ok=last.tracking_ok,
+                    )
+                elif not connected:
+                    blinks.reset()
+                if gesture is not None and gesture.count == TOGGLE_BLINKS:
+                    blink_stats["toggle_gestures"] += 1
+                    if communication.blink_toggle and phase is Phase.BOARD:
+                        session.toggle_pause()
+                        speak_safely(speech, "Pausa." if session.paused else "Empiezo a leer.")
+                elif gesture is not None and gesture.count == SELECT_BLINKS:
+                    blink_stats["select_gestures"] += 1
+                    blink_update = session.select_by_blink(now)
+                    if blink_update is not None and update.confirmed is None:
+                        blink_stats["selections"] += 1
+                        update = blink_update
                 if fresh and last is not None:
                     latencies.append((now - last.frame_timestamp_seconds) * 1000.0)
                     if update.focused is not None and last.raw_screen_point is not None:
@@ -996,7 +1050,7 @@ def run_board(
                     flash, flash_until = update.confirmed, now + 0.8
                     if (
                         phase is Phase.BOARD
-                        and update.confirmed_source == "gaze"
+                        and update.confirmed_source in ("gaze", "blink")
                         and communication.implicit_recalibration
                     ):
                         points = [
@@ -1028,6 +1082,7 @@ def run_board(
                         communication.auto_realign
                         and align
                         and phase is Phase.BOARD
+                        and not session.paused
                         and status.sustained_seconds >= _REALIGN_AFTER_SECONDS
                         and now - last_realign >= _REALIGN_MIN_INTERVAL
                         and update.focused is None
@@ -1074,6 +1129,9 @@ def run_board(
                     prompt=prompt,
                     cells=cells,
                     location=location,
+                    blink_mode=session.blink_mode,
+                    blink_toggle=communication.blink_toggle,
+                    blink_count=blinks.count_in_progress,
                 )
                 cv2.imshow(_WINDOW_NAME, canvas)
     finally:
@@ -1119,6 +1177,7 @@ def run_board(
             "speech_failures": speech_failures,
             "adaptation": stats,
             "conversation": conversation_stats,
+            "blinks": {**blink_stats, **blinks.stats},
             "session": session.stats.as_dict(),
         },
         "privacy": {
@@ -1199,6 +1258,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--gender", choices=("m", "f"), default=None, help="Grammatical gender of phrases"
     )
+    parser.add_argument(
+        "--selection",
+        choices=("dwell", "blink"),
+        default=None,
+        help="dwell: look for a time; blink: look, then blink twice (4 blinks start/stop)",
+    )
     parser.add_argument("--fullscreen", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument(
         "--calibrate",
@@ -1252,6 +1317,8 @@ def main(argv: list[str] | None = None) -> int:
             overrides["interface"] = args.interface
         if args.gender is not None:
             overrides["gender"] = args.gender
+        if args.selection is not None:
+            overrides["selection_mode"] = args.selection
         if args.test < 0 or args.test > 5:
             raise ValueError("--test must be between 0 and 5")
         if args.test > 0:

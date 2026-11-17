@@ -14,6 +14,7 @@
     .\scripts\mekasa.ps1 tablero       # calibra (~35 s) y abre el tablero de conversación
     .\scripts\mekasa.ps1 tablero -Genero F      # frases en femenino ("Estoy cansada")
     .\scripts\mekasa.ps1 tablero -Simple        # tablero simple SÍ / NO / AGUA / AYUDA
+    .\scripts\mekasa.ps1 tablero -Parpadeo      # mirar + 2 parpadeos elige; 4 parpadeos empieza/para
     .\scripts\mekasa.ps1 tablero -SinCalibrar   # reutiliza la última calibración + ajuste de 4 puntos
     .\scripts\mekasa.ps1 tablero -Ojo LEFT -Dwell 1.2
     .\scripts\mekasa.ps1 simular       # prueba de seguridad sin cámara
@@ -40,6 +41,8 @@ param(
     [string]$Genero = "",
 
     [switch]$Simple,
+    # Elegir parpadeando 2 veces (nunca por tiempo); 4 parpadeos empiezan o paran la lectura.
+    [switch]$Parpadeo,
     [switch]$Confirmar,
     [switch]$SinCalibrar,
     [switch]$Ventana
@@ -73,12 +76,13 @@ function Get-BoardArguments {
     if ($Confirmar) { $arguments += "--confirm" }
     if ($Genero) { $arguments += @("--gender", $Genero.ToLower()) }
     if ($Simple) { $arguments += @("--interface", "simple") }
+    if ($Parpadeo) { $arguments += @("--selection", "blink") }
     if ($SinCalibrar) { $arguments += "--no-calibrate" }
     if ($Ventana) { $arguments += "--no-fullscreen" }
     return $arguments
 }
 
-$keys = "Teclas: 1-4 elegir · RETROCESO volver · H inicio · ESPACIO pausa · A reajustar · K recalibrar · M cambiar ojo · G ver mirada · C borrar · ESC salir"
+$keys = "Parpadeos: 4 seguidos empiezan/paran · con -Parpadeo, 2 seguidos eligen. Teclas: 1-4 elegir · RETROCESO volver · H inicio · ESPACIO pausa · A reajustar · K recalibrar · M cambiar ojo · G ver mirada · C borrar · ESC salir"
 
 switch ($Accion) {
     "instalar" {

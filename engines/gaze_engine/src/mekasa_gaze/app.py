@@ -152,6 +152,9 @@ def _dispatch(args: list[str]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
+    # MediaPipe imports matplotlib.pyplot at start-up; no plotting window is ever used, and the
+    # bundle has no tkinter, so pin the non-interactive backend.
+    os.environ.setdefault("MPLBACKEND", "Agg")
     data = data_root()
     data.mkdir(parents=True, exist_ok=True)
     log: TextIO | None = None

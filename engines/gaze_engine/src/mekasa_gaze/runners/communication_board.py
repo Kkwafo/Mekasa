@@ -33,7 +33,7 @@ import random
 import sys
 from collections import deque
 from dataclasses import asdict, dataclass, field, is_dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from time import perf_counter
@@ -443,8 +443,20 @@ def profile_name(value: str) -> str:
     return cleaned
 
 
+_last_stamp: list[datetime] = []
+
+
 def history_stamp() -> str:
-    return datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")  # microseconds: never collide
+    """UTC stamp for history files, strictly increasing within the process.
+
+    The Windows clock can advance in steps of 1-16 ms, so two calls in a row may read the same
+    time; the second is moved 1 microsecond past the previous one instead of overwriting it.
+    """
+    now = datetime.now(UTC)
+    if _last_stamp and now <= _last_stamp[0]:
+        now = _last_stamp[0] + timedelta(microseconds=1)
+    _last_stamp[:] = [now]
+    return now.strftime("%Y%m%dT%H%M%S%fZ")
 
 
 def session_model_path(directory: Path, mode: EyeMode) -> Path:

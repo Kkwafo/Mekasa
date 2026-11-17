@@ -158,3 +158,12 @@ def test_powershell_script_has_exactly_one_bom() -> None:
     bom = b"\xef\xbb\xbf"
     assert data.startswith(bom) and not data.startswith(bom + bom)
     assert data[len(bom) :].startswith(b"<#")
+
+
+def test_history_stamps_never_repeat() -> None:
+    """The Windows clock can return the same time twice; reports must not overwrite."""
+    from mekasa_gaze.runners.communication_board import history_stamp
+
+    stamps = [history_stamp() for _ in range(500)]
+    assert len(set(stamps)) == len(stamps)
+    assert stamps == sorted(stamps)

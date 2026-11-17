@@ -73,7 +73,7 @@ New-Item -ItemType Directory -Force -Path build | Out-Null
 } | ConvertTo-Json | Set-Content -Encoding utf8 build\build-info.json
 
 if (Test-Path dist\Mekasa) { Remove-Item -Recurse -Force dist\Mekasa }
-& $uv run --locked --with "pyinstaller==$PyInstallerVersion" pyinstaller packaging\mekasa.spec `
+& $uv run --locked --with "pyinstaller==$PyInstallerVersion" python -m PyInstaller packaging\mekasa.spec `
     --noconfirm --clean --distpath dist --workpath build\pyinstaller
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller falló" }
 

@@ -2,6 +2,7 @@
 # Build with scripts/build-release.ps1 (it fetches the face model and writes build-info.json).
 # Output: dist/Mekasa/ with Mekasa.exe (no console window) and Mekasa-consola.exe (console,
 # for "camaras", "simular" and troubleshooting). Both run mekasa_gaze.app.
+# matplotlib must stay: mediapipe.tasks.python.vision imports it at start-up.
 # ruff: noqa
 from pathlib import Path
 
@@ -41,7 +42,7 @@ a = Analysis(
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
-    excludes=["tkinter", "matplotlib", "pytest", "IPython", "jax", "torch", "tensorflow"],
+    excludes=["tkinter", "pytest", "IPython", "jax", "torch", "tensorflow"],
     noarchive=False,
 )
 pyz = PYZ(a.pure)

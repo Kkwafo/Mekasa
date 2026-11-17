@@ -162,6 +162,26 @@ Mekasa/
 
 ## 4. Instalación y Configuración
 
+### Descargar el programa (Windows, sin internet)
+
+Para usar Mekasa no hace falta Python ni nada más: en **[Releases](https://github.com/Kkwafo/Mekasa/releases/latest)** está la última versión.
+
+* **`Mekasa-<versión>-setup.exe`**: instalador. No pide administrador y deja en el menú Inicio *Mekasa (tablero)*, *prueba de precisión*, *ver cámaras* y *datos y vocabulario*.
+* **`Mekasa-<versión>-windows-x64-portable.zip`**: la misma carpeta sin instalar. Se descomprime y se abre `Mekasa.exe`.
+
+Todo funciona sin conexión: cámara, MediaPipe, el modelo de rostro y la voz de Windows quedan en el equipo. Los datos de la persona se guardan en `%LOCALAPPDATA%\Mekasa`:
+
+| Carpeta | Contenido |
+| --- | --- |
+| `config\` | `communication.toml` y `vocabulario.txt`, editables. Se copian la primera vez y una actualización no los pisa. |
+| `work\calibration\` | Modelo de la sesión por modo ocular. Al cerrar se guarda el modelo **reentrenado con las selecciones confirmadas** durante el uso; cada calibración y cada modelo adaptado quedan también en `history\`. |
+| `work\communication\` | Reporte de cada sesión (`history\`). |
+| `work\logs\` | Registro del programa (útil si algo falla). |
+
+**Espacio reservado:** `work\` tiene un tope (512 MB por defecto, `[storage] max_work_mb` en `config\communication.toml`). Al abrir y al cerrar, si se supera, se borran primero los archivos más viejos de `history\` y `logs\`; el modelo actual y el último reporte nunca se borran. Si queda menos espacio libre en disco que `min_free_disk_mb`, avisa en el registro.
+
+Generar el ejecutable desde el código (crea `dist\`): `.\scripts\build-release.ps1`. Cada push a `main` con una versión nueva en `pyproject.toml` lo construye y lo publica solo (`.github/workflows/release.yml`).
+
 ### Requisitos del Sistema
 * **Sistema Operativo:** Windows 10/11 (recomendado para soporte directo de síntesis de voz SAPI en español), Linux o macOS.
 * **Python:** Versión `3.12` (gestionada de forma óptima mediante `uv`).

@@ -126,3 +126,11 @@ phrase = "Quiero agua"
 [phrases.HELP]
 label = "AYUDA"
 phrase = "Necesito ayuda"
+
+[storage]
+# Disk reserved for work/ (session reports, calibration history, adapted models, program logs).
+# When exceeded, the oldest files in history/ and logs/ folders are deleted first; the current
+# models and the latest report are always kept. Checked at start and at exit.
+max_work_mb = 512
+# Warn (the board still runs) when the disk has less free space than this.
+min_free_disk_mb = 200

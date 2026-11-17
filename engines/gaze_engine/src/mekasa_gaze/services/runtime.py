@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import platform
 import subprocess
@@ -59,6 +60,8 @@ def source_revision() -> dict[str, str | bool | None]:
     Returns:
         dict[str, str | bool | None]: Mapping with keys 'commit' (SHA or None) and 'dirty' (bool).
     """
+    if getattr(sys, "frozen", False):  # installed program: no git, revision baked in at build
+        return _frozen_revision()
     try:
         commit = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -76,6 +79,19 @@ def source_revision() -> dict[str, str | bool | None]:
         )
         return {"commit": commit, "dirty": dirty}
     except (FileNotFoundError, subprocess.CalledProcessError):
+        return {"commit": None, "dirty": None}
+
+
+def _frozen_revision() -> dict[str, str | bool | None]:
+    info = Path(getattr(sys, "_MEIPASS", ".")) / "build-info.json"
+    try:
+        data = json.loads(info.read_text(encoding="utf-8"))
+        return {
+            "commit": data.get("commit"),
+            "dirty": bool(data.get("dirty", False)),
+            "version": data.get("version"),
+        }
+    except (OSError, ValueError):
         return {"commit": None, "dirty": None}
 
 

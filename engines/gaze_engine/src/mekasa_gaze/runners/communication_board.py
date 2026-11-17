@@ -1589,6 +1589,21 @@ def run_board(
         cv2.destroyWindow(_WINDOW_NAME)
         speech.close()
 
+    # Keep what the session learned: the weights re-fitted with confirmed selections replace
+    # the session model (used by --no-calibrate and as the starting point next time); the
+    # calibration-only model stays in history.
+    if calibration_dir is not None and stats["model_refits"] > 0:
+        adapted = models.get(eye_mode)
+        if isinstance(adapted, PersonalGazeModel):
+            save_personal_model(adapted, session_model_path(calibration_dir, eye_mode))
+            save_personal_model(
+                adapted,
+                session_model_path(
+                    calibration_dir / "history" / f"{calibration_stamp}-adapted", eye_mode
+                ),
+            )
+            stats["adapted_model_saved"] = eye_mode.value
+
     capture = grabber.status()
     settings = grabber.camera_settings
     duration = perf_counter() - started

@@ -2,6 +2,15 @@
 
 Última actualización: 2026-11-16, rama `feature/v0-communication-loop` (creada desde `origin/development` @ `33d9499`).
 
+## Release 1.0.0 (2026-11-17, rama `release/mekasa-1.0` desde `origin/development` @ `6f4648d`)
+
+- Programa instalable para Windows, sin internet: `scripts/build-release.ps1` arma `dist/Mekasa/` (PyInstaller, `Mekasa.exe` sin consola y `Mekasa-consola.exe`), el `.zip` portable y, con Inno Setup 6, `Mekasa-1.0.0-setup.exe` (instala por usuario, sin administrador).
+- `mekasa_gaze.app` (comando `mekasa`): datos en `%LOCALAPPDATA%\Mekasa` (o `MEKASA_HOME`), copia la configuración la primera vez sin pisar ediciones, registros en `work/logs`, aviso con ventana si falla.
+- Espacio reservado: `[storage] max_work_mb = 512` y `min_free_disk_mb = 200`; al abrir y cerrar se borran los archivos más viejos de `history/` y `logs/`; el modelo actual y el último reporte nunca.
+- Aprendizaje entre sesiones: si durante el uso se reentrenaron los pesos con selecciones confirmadas, al cerrar ese modelo adaptado reemplaza al de la sesión (lo usa `--no-calibrate`) y queda copia en `history/<stamp>-adapted/`. La calibración al inicio sigue activa por defecto (la evidencia muestra que un modelo de otra sesión no transfiere).
+- `.github/workflows/release.yml`: cada push a `main` con una versión de `pyproject.toml` sin release construye, prueba (simulación del `.exe`) y publica `v<versión>` con instalador, zip y `SHA256SUMS.txt`.
+- Pendiente antes de distribuir a terceros: la revisión de licencia del modelo `face_landmarker.task` (ver `models/gaze/mediapipe-face-landmarker/metadata.json`), porque el instalador lo incluye.
+
 ## Qué funciona de extremo a extremo
 
 1. **Captura y detección (hito 1).** `uv run mekasa-experiment-001 --no-display` corre en este equipo. Hay más detalles en `research/EVIDENCE.md`.

@@ -16,7 +16,7 @@ max_frame_age_seconds = 0.25
 # Eye-only dropouts (blink, a frame with the lid too low) up to this long freeze dwell
 # progress instead of cancelling it. Nothing advances or is emitted during the gap.
 # Camera, stale-frame, tracking and placement losses still cancel immediately.
-# 2026-11-16: ~15% scattered eye dropouts made the bottom row unreachable without it.
+# ~15% scattered eye dropouts made the bottom row unreachable without it.
 eye_dropout_grace_seconds = 0.2
 # Optional second dwell on the same option (leave, return, dwell) before speaking.
 confirmation_required = false
@@ -25,7 +25,7 @@ confirmation_window_seconds = 4.0
 eye_mode = "BOTH"
 high_contrast = true
 
-# --- Precision (2026-11-16 analysis, measured in Mekasa) ---------------------------------
+# --- Precision (analysis measured in Mekasa) ------------------------------------------
 # A calibration from one sitting does not transfer to another: 2x2 frame accuracy fell from
 # 96-100 % within a session to 26 % across sessions; a fresh 2-round calibration with a
 # head-movement segment reached 95-98 % (cross-validated within the session). So the board
@@ -39,7 +39,7 @@ countdown_seconds = 3
 # Re-run the 4-point alignment automatically when the face stays clearly closer, farther,
 # shifted or turned relative to calibration (engineering hypothesis).
 auto_realign = true
-# Keep adjusting while the board is used (2026-11-17). Each selection made by looking or by
+# Keep adjusting while the board is used. Each selection made by looking or by
 # blinking-then-looking is evidence of where that option is for the current posture. It counts
 # only after 4 s without being undone (C, VOLVER or BORRAR right after choosing). Per-axis and
 # bounded; evidence from a different posture fades. Engineering hypothesis.
@@ -87,7 +87,7 @@ blink_toggle = true
 # are bilateral, so winks are hard to trigger by accident.
 calibrate_winks = true
 wink_select_count = 3     # winks in a row with one eye
-# Order of a blink/wink selection (2026-11-17 feedback: the gaze estimate jumps while blinking,
+# Order of a blink/wink selection (feedback: the gaze estimate jumps while blinking,
 # so looking first and blinking after was hard). "blink_then_look": blink (or wink) first, then
 # look at the option for intent_focus_seconds within intent_window_seconds.
 # "look_then_blink": look until the option is ready, then blink.

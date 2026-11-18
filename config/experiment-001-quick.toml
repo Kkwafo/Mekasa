@@ -16,7 +16,7 @@ min_tracking_confidence = 0.5
 # Camera-relative engineering guidance. The protocol only starts while the
 # detected face width is inside this band. It is not a clinical threshold.
 [placement]
-# The 2026-09-21 schema-5 run retained 100% tracking and 98.81% usable gaze
+# The schema-5 run retained 100% tracking and 98.81% usable gaze
 # down to 0.264. A 0.25 floor keeps measured margin while allowing a
 # substantially more comfortable camera distance.
 min_face_width = 0.25

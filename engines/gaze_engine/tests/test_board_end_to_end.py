@@ -1,7 +1,7 @@
 """End-to-end run of the real board runner with a synthetic person, camera and clock.
 
-Covers: calibration at start -> model fitting (landmarks lack vertical signal, as in the
-2026-11-16 session B, so eye images must carry it) -> summary -> instructed test -> free use of
+Covers: calibration at start -> model fitting (landmarks lack vertical signal, as in session B,
+so eye images must carry it) -> summary -> instructed test -> free use of
 the bottom row -> moving closer triggers automatic re-alignment -> implicit learning.
 It verifies software behaviour only; real accuracy needs a person (``mekasa.ps1 prueba``).
 """

@@ -13,7 +13,7 @@ This smoother:
 * lets the caller mark frames as *unreliable* (lid moving fast around a blink): they never
   enter the filter and the last value is held, but never longer than ``max_hold_seconds``.
 
-2026-11-17 correction: the first version flagged frames by a fixed aperture *level*. Looking
+Correction: the first version flagged frames by a fixed aperture *level*. Looking
 further down than during calibration (e.g. after raising the chair) keeps the lid low for a long
 time, so the estimate stayed frozen on the previous (upper) option: "it did not detect the
 bottom row". Re-analysis of sessions A/B with bottom-row apertures scaled by 0.8 reproduced it

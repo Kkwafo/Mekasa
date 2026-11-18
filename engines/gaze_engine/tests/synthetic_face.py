@@ -69,7 +69,7 @@ def observation_for(
     """Observation of a person looking at ``gaze``.
 
     With ``vertical_in_landmarks=False`` the landmark iris features carry no vertical signal
-    (the 2026-11-16 session B situation); only the eye images and a weak eye aperture do.
+    (the session B situation); only the eye images and a weak eye aperture do.
     """
     rng = rng or np.random.default_rng(sequence)
     image, landmarks = face_image(gaze, scale=face_width / 0.35)

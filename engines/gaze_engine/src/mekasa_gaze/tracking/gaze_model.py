@@ -1,6 +1,6 @@
 """Personal gaze model trained in the same sitting it is used.
 
-Evidence that drove this design (measured in Mekasa, 2026-11-16, two guided sessions A and B
+Evidence that drove this design (measured in Mekasa, two guided sessions A and B
 recorded about 4 hours apart, 2x2 quadrant frame accuracy):
 
 * Within a session a ridge model on landmark features reached 96-100 % (A) on a held-out block.
@@ -422,10 +422,10 @@ class PersonalThresholds:
 def personal_thresholds(samples: Sequence[CalibrationSample], split_y: float) -> PersonalThresholds:
     """Closed = below 45 % of the median aperture seen while looking at the lowest row.
 
-    Eyelids follow downward gaze (2026-11-16: EAR 0.26 at the top row, 0.12 at the bottom), so
+    Eyelids follow downward gaze (EAR 0.26 at the top row, 0.12 at the bottom), so
     a population threshold of 0.15 calls downward fixations "closed". The first rule (60 %)
     still called 11-13 % of bottom-row frames "closed" when the gaze went 30 % lower than during
-    calibration (raised chair, 2026-11-17); 45 % lowers that to 1-2 % while still catching 94 %
+    calibration (raised chair); 45 % lowers that to 1-2 % while still catching 94 %
     of real blinks in session B (blink minima median 0.024). Clamped to plausible ranges.
     """
     bottom = [sample for sample in samples if sample.target[1] > split_y + 0.02]

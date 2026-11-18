@@ -358,7 +358,7 @@ uv run mekasa-board --eye-mode LEFT       # BOTH | LEFT | RIGHT (lado anatómico
 uv run mekasa-board --simulate            # replay sin cámara de todos los bloqueos de seguridad
 ```
 
-* **Calibración al inicio (~35 s).** Una calibración de otra sesión no sirve: en los datos del 2026-11-16 el acierto 2×2 cayó de 96–100 % dentro de la sesión a 26 % entre sesiones. La calibración muestra 9 puntos dentro del tablero, luego el punto central mientras la persona mueve despacio la cabeza, y repite los 9 puntos en otro orden. Entrena un modelo para cada modo ocular y muestra el acierto validado (arriba y abajo por separado). `R` la repite.
+* **Calibración al inicio (~35 s).** Una calibración de otra sesión no sirve: en los datos medidos el acierto 2×2 cayó de 96–100 % dentro de la sesión a 26 % entre sesiones. La calibración muestra 9 puntos dentro del tablero, luego el punto central mientras la persona mueve despacio la cabeza, y repite los 9 puntos en otro orden. Entrena un modelo para cada modo ocular y muestra el acierto validado (arriba y abajo por separado). `R` la repite.
 * **Qué aprende el modelo.** Por cada modo ocular compara tres variantes con validación cruzada entre rondas y se queda con la mejor:
   * puntos del rostro (iris, apertura del ojo, pose de la cabeza);
   * imagen del ojo: parches de 20×10 píxeles alineados a las comisuras, que captan el párpado y la esclera, donde está la señal vertical;

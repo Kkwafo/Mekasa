@@ -153,7 +153,7 @@ def test_main_keeps_history_and_separates_profiles(
 
 
 def test_powershell_script_has_exactly_one_bom() -> None:
-    """A doubled BOM makes Windows PowerShell reject the script header (2026-11-17)."""
+    """A doubled BOM makes Windows PowerShell reject the script header."""
     data = (ROOT / "scripts" / "mekasa.ps1").read_bytes()
     bom = b"\xef\xbb\xbf"
     assert data.startswith(bom) and not data.startswith(bom + bom)

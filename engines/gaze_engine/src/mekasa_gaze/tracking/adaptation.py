@@ -1,6 +1,6 @@
 """Keep adjusting to the person while the board is used, safely.
 
-What 2026-11-17 re-analyses of sessions A/B showed (simulated drift, see docs/STATUS.md):
+What re-analyses of sessions A/B showed (simulated drift, see docs/STATUS.md):
 
 * Learning a full affine correction from a few selections can rotate or shear the board when
   the selections come from only two options (86 % -> 52 % with every selection correct).

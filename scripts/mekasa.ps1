@@ -22,6 +22,7 @@
     .\scripts\mekasa.ps1 tablero -Perfil lentes # calibraciones separadas por persona
     .\scripts\mekasa.ps1 tablero -SinCalibrar   # reutiliza la última calibración + ajuste de 4 puntos
     .\scripts\mekasa.ps1 tablero -Ojo LEFT -Dwell 1.2
+    .\scripts\mekasa.ps1 tablero -Camara      # muestra la cámara (para filmar); V la cambia
     .\scripts\mekasa.ps1 simular       # prueba de seguridad sin cámara
     .\scripts\mekasa.ps1 tests         # pruebas automáticas
 #>
@@ -54,6 +55,8 @@ param(
     [switch]$SoloTiempo,
     [switch]$Confirmar,
     [switch]$SinCalibrar,
+    # Muestra la imagen de la cámara con los puntos de los ojos (para filmar una demostración).
+    [switch]$Camara,
     [switch]$Ventana
 )
 
@@ -90,10 +93,11 @@ function Get-BoardArguments {
     elseif ($SoloTiempo) { $arguments += @("--selection", "dwell") }
     if ($SinCalibrar) { $arguments += "--no-calibrate" }
     if ($Ventana) { $arguments += "--no-fullscreen" }
+    if ($Camara) { $arguments += @("--camera-view", "corner") }
     return $arguments
 }
 
-$keys = "Parpadeos seguidos: 3 y luego mirar = elegir · 4 empezar/parar · 5 decir · 7+ urgencia. Teclas: 1-4 elegir · RETROCESO volver · H inicio · ESPACIO pausa · A reajustar · K recalibrar · M cambiar ojo · G ver mirada · C borrar · ESC salir"
+$keys = "Parpadeos seguidos: 3 y luego mirar = elegir · 4 empezar/parar · 5 decir · 7+ urgencia. Teclas: 1-4 elegir · RETROCESO volver · H inicio · ESPACIO pausa · V cámara · A reajustar · K recalibrar · M cambiar ojo · G ver mirada · C borrar · ESC salir"
 
 switch ($Accion) {
     "instalar" {

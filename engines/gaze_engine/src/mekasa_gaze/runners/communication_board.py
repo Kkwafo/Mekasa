@@ -99,8 +99,10 @@ from mekasa_gaze.tracking.wink_calibration import (
     save_wink_profile,
 )
 from mekasa_gaze.ui.board_view import (
+    CAMERA_VIEWS,
     board_area,
     board_to_screen,
+    draw_camera_view,
     option_centers,
     render_alignment,
     render_board,
@@ -818,6 +820,7 @@ def run_board(
         "implicit_samples_retracted": 0,
         "model_refits": 0,
         "eye_mode_auto_switched": None,
+        "camera_view_used": communication.camera_view != "off",
     }
     calibration_report: dict[str, Any] | None = None
     test_results: dict[str, Any] | None = None
@@ -844,6 +847,21 @@ def run_board(
     cv2.setMouseCallback(_WINDOW_NAME, on_mouse)
     started = perf_counter()
     last: PipelineResult | None = None
+    # Camera view (demonstrations): the latest image is kept in memory only, never stored.
+    camera_view = communication.camera_view
+    camera_bgr: npt.NDArray[np.uint8] | None = None
+
+    def show(canvas: npt.NDArray[np.uint8]) -> None:
+        if camera_view != "off":
+            draw_camera_view(
+                canvas,
+                camera_bgr,
+                last.observation if last is not None else None,
+                view=camera_view,
+                tracking_ok=last is not None and last.tracking_ok,
+            )
+        cv2.imshow(_WINDOW_NAME, canvas)
+
     flash_until = 0.0
     flash: BoardOption | None = None
     try:
@@ -959,6 +977,8 @@ def run_board(
                 frame = grabber.take_new()
                 if frame is not None:
                     last = pipeline.process(frame)
+                    if camera_view != "off":
+                        camera_bgr = frame.bgr
                     processing.append(last.processing_ms)
                 now = perf_counter()
                 connected = grabber.status().connected
@@ -966,6 +986,12 @@ def run_board(
                 key = cv2.waitKey(1 if frame is not None else 5) & 0xFF
                 if key in (27, ord("q")):
                     break
+                if key in (ord("v"), ord("V")):
+                    camera_view = CAMERA_VIEWS[
+                        (CAMERA_VIEWS.index(camera_view) + 1) % len(CAMERA_VIEWS)
+                    ]
+                    camera_bgr = None if camera_view == "off" else camera_bgr
+                    stats["camera_view_used"] = True
 
                 # Blink gestures are read in every phase except the wink step; the urgent call
                 # acts at once, whatever the screen and even while paused or calibrating.
@@ -1007,8 +1033,7 @@ def run_board(
                     if skip or now - phase_since >= speech_seconds(intro_text):
                         phase, phase_since = Phase.COUNTDOWN, now
                         continue
-                    cv2.imshow(
-                        _WINDOW_NAME,
+                    show(
                         render_summary(
                             width,
                             height,
@@ -1025,8 +1050,7 @@ def run_board(
                         calibration = start_calibration(announce=False)
                         phase = Phase.CALIBRATING
                         continue
-                    cv2.imshow(
-                        _WINDOW_NAME,
+                    show(
                         render_countdown(
                             width,
                             height,
@@ -1125,8 +1149,7 @@ def run_board(
                             speak_safely(speech, summary_speech)
                         continue
                     signal_ok = last is not None and last.tracking_ok and last.any_eye_open
-                    cv2.imshow(
-                        _WINDOW_NAME,
+                    show(
                         render_calibration(
                             width,
                             height,
@@ -1168,8 +1191,7 @@ def run_board(
                         wink_eye = wink.eye
                         side = "derecho" if wink.eye == "right" else "izquierdo"
                         speak_safely(speech, f"Cierre solo el ojo {side}, tres veces.")
-                    cv2.imshow(
-                        _WINDOW_NAME,
+                    show(
                         render_wink_step(
                             width,
                             height,
@@ -1214,8 +1236,7 @@ def run_board(
                     footer = "ENTER = continuar · R = repetir calibración · ESC = salir"
                     if quality >= _GOOD_QUALITY:
                         footer = "Continúa solo en unos segundos · " + footer
-                    cv2.imshow(
-                        _WINDOW_NAME,
+                    show(
                         render_summary(
                             width,
                             height,
@@ -1242,8 +1263,7 @@ def run_board(
                         phase = Phase.BOARD
                         continue
                     signal_ok = last is not None and last.raw_screen_point is not None
-                    cv2.imshow(
-                        _WINDOW_NAME,
+                    show(
                         render_alignment(
                             width,
                             height,
@@ -1429,8 +1449,7 @@ def run_board(
                         test_results = instructed_report(test.trials, keys)
                         test = None
                         phase = Phase.TEST_SUMMARY
-                        cv2.imshow(
-                            _WINDOW_NAME,
+                        show(
                             _test_summary_canvas(
                                 width, height, test_results, session, communication
                             ),
@@ -1596,7 +1615,7 @@ def run_board(
                     blink_kind=blinks.kind_in_progress,
                     blink_first=communication.blink_select_order == "blink_then_look",
                 )
-                cv2.imshow(_WINDOW_NAME, canvas)
+                show(canvas)
     finally:
         cv2.destroyWindow(_WINDOW_NAME)
         speech.close()
@@ -1749,6 +1768,12 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         help="dwell: look for a time; blink: look, then blink; combined: either",
     )
+    parser.add_argument(
+        "--camera-view",
+        choices=("off", "corner", "center"),
+        default=None,
+        help="Show the camera image with eye landmarks (for demos; never stored). Key V cycles.",
+    )
     parser.add_argument("--fullscreen", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument(
         "--calibrate",
@@ -1805,6 +1830,8 @@ def main(argv: list[str] | None = None) -> int:
             overrides["gender"] = args.gender
         if args.selection is not None:
             overrides["selection_mode"] = args.selection
+        if args.camera_view is not None:
+            overrides["camera_view"] = args.camera_view
         if args.test < 0 or args.test > 5:
             raise ValueError("--test must be between 0 and 5")
         if args.test > 0:

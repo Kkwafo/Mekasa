@@ -39,6 +39,7 @@ Source: "..\dist\Mekasa\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdir
 [Icons]
 Name: "{group}\Mekasa (tablero)"; Filename: "{app}\Mekasa.exe"; Parameters: "tablero"
 Name: "{group}\Mekasa - prueba de precisión"; Filename: "{app}\Mekasa.exe"; Parameters: "prueba"
+Name: "{group}\Mekasa - demostración (con cámara)"; Filename: "{app}\Mekasa.exe"; Parameters: "demo"
 Name: "{group}\Mekasa - ver cámaras"; Filename: "{app}\Mekasa-consola.exe"; Parameters: "camaras"
 Name: "{group}\Mekasa - datos y vocabulario"; Filename: "{app}\Mekasa.exe"; Parameters: "carpeta"
 Name: "{group}\Desinstalar Mekasa"; Filename: "{uninstallexe}"

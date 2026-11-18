@@ -24,6 +24,10 @@ confirmation_window_seconds = 4.0
 # BOTH, LEFT or RIGHT (anatomical side of the person).
 eye_mode = "BOTH"
 high_contrast = true
+# Camera view for demonstrations and filming: "off", "corner" (inside the top bands, never over
+# an option) or "center" (larger, over the gap between the cards). Key V cycles it while running.
+# The image is only displayed, never stored.
+camera_view = "off"
 
 # --- Precision (2026-11-16 analysis, measured in Mekasa) ---------------------------------
 # A calibration from one sitting does not transfer to another: 2x2 frame accuracy fell from

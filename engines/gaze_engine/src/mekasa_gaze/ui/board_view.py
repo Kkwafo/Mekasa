@@ -18,6 +18,7 @@ import numpy as np
 import numpy.typing as npt
 
 from mekasa_gaze.core.board import BoardLayout, BoardOption
+from mekasa_gaze.core.domain import FeatureObservation
 from mekasa_gaze.core.eye_mode import EyeMode
 from mekasa_gaze.tracking.communication import AbstainReason, SessionState, SessionUpdate
 from mekasa_gaze.tracking.session_alignment import AlignmentSnapshot
@@ -801,11 +802,91 @@ def _wrap(label: str, single_line_max: int = 11) -> list[str]:
     return [" ".join(words[:best]), " ".join(words[best:])]
 
 
+# Camera view for demonstrations (key V): what the camera sees, mirrored like a mirror, with
+# the eye and iris landmarks the system uses. Display only: the image is never stored.
+CAMERA_VIEWS = ("off", "corner", "center")
+_CAMERA_OK: Color = (90, 200, 90)
+_CAMERA_LOST: Color = (60, 60, 230)
+_EYE_POINT: Color = (255, 200, 60)
+_IRIS_POINT: Color = (60, 230, 255)
+
+
+def camera_view_box(width: int, height: int, view: str) -> tuple[int, int, int, int] | None:
+    """Pixel box (left, top, right, bottom) of the camera view, 4:3, or None when off.
+
+    ``corner`` fits in the top bands (right end), so it never covers an option. ``center`` is
+    larger, over the gap between the four cards (it covers their inner corners only).
+    """
+    if view == "corner":
+        box_h = int(height * _BOARD_TOP) - 8
+        box_w = box_h * 4 // 3
+        return (width - box_w - 6, 4, width - 6, 4 + box_h)
+    if view == "center":
+        box_w = int(width * 0.18)
+        box_h = box_w * 3 // 4
+        left, top, right, bottom = board_area(width, height)
+        cx = int((left + right) / 2 * width)
+        cy = int((top + bottom) / 2 * height)
+        return (cx - box_w // 2, cy - box_h // 2, cx - box_w // 2 + box_w, cy - box_h // 2 + box_h)
+    return None
+
+
+def draw_camera_view(
+    canvas: npt.NDArray[np.uint8],
+    frame_bgr: npt.NDArray[np.uint8] | None,
+    observation: FeatureObservation | None,
+    *,
+    view: str,
+    tracking_ok: bool,
+) -> None:
+    """Draw the mirrored camera image with landmarks into ``canvas`` (in place)."""
+    height, width = canvas.shape[:2]
+    box = camera_view_box(width, height, view)
+    if box is None:
+        return
+    left, top, right, bottom = box
+    box_w, box_h = right - left, bottom - top
+    if frame_bgr is None or frame_bgr.size == 0:
+        canvas[top:bottom, left:right] = (20, 20, 20)
+        draw_text(canvas, "sin cámara", box, (200, 200, 200), max_size=22, bold=False)
+    else:
+        image = cv2.resize(cv2.flip(frame_bgr, 1), (box_w, box_h), interpolation=cv2.INTER_AREA)
+        if observation is not None:
+
+            def pixel(point: tuple[float, float]) -> tuple[int, int]:
+                # Mirrored like the image: x -> 1 - x.
+                return round((1.0 - point[0]) * box_w), round(point[1] * box_h)
+
+            for point in observation.debug_eye_points:
+                cv2.circle(image, pixel(point), 1, _EYE_POINT, -1, cv2.LINE_AA)
+            for point in (
+                *observation.debug_left_iris_points,
+                *observation.debug_right_iris_points,
+            ):
+                cv2.circle(image, pixel(point), 2, _IRIS_POINT, -1, cv2.LINE_AA)
+        canvas[top:bottom, left:right] = image
+    color = _CAMERA_OK if tracking_ok else _CAMERA_LOST
+    cv2.rectangle(canvas, (left - 2, top - 2), (right + 1, bottom + 1), color, 3)
+    label_h = max(16, box_h // 9)
+    cv2.rectangle(canvas, (left, bottom - label_h), (right, bottom), (15, 15, 15), -1)
+    draw_text(
+        canvas,
+        "cámara · no se graba" if tracking_ok else "cámara · no veo el rostro",
+        (left + 4, bottom - label_h, right - 4, bottom),
+        color,
+        max_size=18,
+        bold=False,
+    )
+
+
 __all__ = [
+    "CAMERA_VIEWS",
     "HIGH_CONTRAST",
     "SOFT",
     "board_area",
     "board_to_screen",
+    "camera_view_box",
+    "draw_camera_view",
     "option_centers",
     "render_alignment",
     "render_board",

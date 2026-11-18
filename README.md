@@ -40,6 +40,8 @@ Mekasa es un programa gratuito y de código abierto para Windows. Permite que un
 
 **Para la familia o el acompañante:** las teclas `1`–`4` y el mouse también eligen. `ESPACIO` pausa, `K` recalibra y `ESC` sale.
 
+**Para mostrar o filmar cómo funciona:** abrí **Mekasa - demostración (con cámara)** desde el menú Inicio (o tocá `V` en el tablero). Aparece la imagen de la cámara, como un espejo, con los puntos de los ojos que sigue Mekasa: borde verde si ve bien el rostro, rojo si no. `V` cambia entre chica arriba a la derecha, grande al centro y apagada. La imagen solo se muestra: no se graba.
+
 **Mekasa aprende con el uso.** Cada vez que la persona elige algo y no lo corrige, el modelo se ajusta un poco más a ella, y ese aprendizaje se guarda al cerrar.
 
 ### Cambiar las frases

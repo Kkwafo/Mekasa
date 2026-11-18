@@ -10,8 +10,9 @@ read-only), so this launcher:
 3. keeps ``work/`` (reports, calibrations, logs) within the disk budget of ``[storage]``;
 4. changes to that folder and starts the board, fully offline.
 
-Commands (first argument): ``tablero`` (default), ``prueba``, ``camaras``, ``simular``,
-``carpeta`` (open the data folder). Other arguments go to the board unchanged.
+Commands (first argument): ``tablero`` (default), ``prueba``, ``demo`` (board with the camera
+view, to film how it works), ``camaras``, ``simular``, ``carpeta`` (open the data folder).
+Other arguments go to the board unchanged.
 """
 
 from __future__ import annotations
@@ -144,9 +145,11 @@ def _dispatch(args: list[str]) -> int:
         return board(["--simulate", *rest])
     if command == "prueba":
         return board(["--test", "2", *rest])
+    if command == "demo":  # shows the camera view for filming; V cycles corner/center/off
+        return board(["--camera-view", "corner", *rest])
     if command == "tablero":
         return board(rest)
-    print(f"Comando desconocido: {command}. Use tablero, prueba, camaras, simular o carpeta.")
+    print(f"Comando desconocido: {command}. Use tablero, prueba, demo, camaras, simular o carpeta.")
     return 2
 
 

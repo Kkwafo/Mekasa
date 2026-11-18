@@ -136,6 +136,8 @@ class CommunicationConfig:
     confirmation_window_seconds: float = 4.0
     eye_mode: EyeMode = EyeMode.BOTH
     high_contrast: bool = True
+    # Camera view for demonstrations: off, corner (top bands) or center. Key V cycles it.
+    camera_view: str = "off"
     phrases: tuple[tuple[str, str, str], ...] = ()
     # Precision features (see config/communication.toml for the evidence behind each).
     calibrate_at_start: bool = True
@@ -208,6 +210,8 @@ class CommunicationConfig:
             raise ValueError("face width band must satisfy 0.08 <= min < max <= 0.9")
         if not 0 <= self.countdown_seconds <= 10:
             raise ValueError("countdown_seconds must be within [0, 10]")
+        if self.camera_view not in ("off", "corner", "center"):
+            raise ValueError("camera_view must be 'off', 'corner' or 'center'")
         if self.interface not in ("conversation", "simple"):
             raise ValueError("interface must be 'conversation' or 'simple'")
         if self.gender not in ("m", "f"):
@@ -300,6 +304,7 @@ class CommunicationConfig:
             ),
             eye_mode=EyeMode(str(section.get("eye_mode", defaults.eye_mode.value)).upper()),
             high_contrast=bool(section.get("high_contrast", defaults.high_contrast)),
+            camera_view=str(section.get("camera_view", defaults.camera_view)),
             phrases=phrases,
             calibrate_at_start=bool(section.get("calibrate_at_start", defaults.calibrate_at_start)),
             min_face_width=float(section.get("min_face_width", defaults.min_face_width)),

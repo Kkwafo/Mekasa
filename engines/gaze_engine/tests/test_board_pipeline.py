@@ -250,7 +250,7 @@ def test_pipeline_applies_personal_closed_eye_threshold(
 
     observation = synthetic_observation((0.3, 0.8), "ok", 1, 10.0)
     features = dict(observation.features)
-    # Looking down (2026-11-16: bottom-row EAR 0.12-0.13 with a personal threshold ~0.08).
+    # Looking down (bottom-row EAR 0.12-0.13 with a personal threshold ~0.08).
     features.update(left_eye_aspect_ratio=0.13, right_eye_aspect_ratio=0.13)
     lowered = dc_replace(observation, features=features)
 

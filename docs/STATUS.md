@@ -1,8 +1,6 @@
 # Estado de Mekasa y punto de continuación
 
-Última actualización: 2026-11-16, rama `feature/v0-communication-loop` (creada desde `origin/development` @ `33d9499`).
-
-## Release 1.0.0 (2026-11-17, rama `release/mekasa-1.0` desde `origin/development` @ `6f4648d`)
+## Release 1.0.0
 
 - Programa instalable para Windows, sin internet: `scripts/build-release.ps1` arma `dist/Mekasa/` (PyInstaller, `Mekasa.exe` sin consola y `Mekasa-consola.exe`), el `.zip` portable y, con Inno Setup 6, `Mekasa-1.0.0-setup.exe` (instala por usuario, sin administrador).
 - `mekasa_gaze.app` (comando `mekasa`): datos en `%LOCALAPPDATA%\Mekasa` (o `MEKASA_HOME`), copia la configuración la primera vez sin pisar ediciones, registros en `work/logs`, aviso con ventana si falla.
@@ -26,7 +24,7 @@
 3. **Calibración por modo ocular.** `uv run mekasa-calibrate --eye-mode LEFT --output work/calibration/personal-gaze-model-left.json`. Hace lo mismo con `RIGHT` y `BOTH`. El tablero carga `personal-gaze-model-{both,left,right}.json` y, para `BOTH`, acepta el archivo histórico `personal-gaze-model.json`.
 4. **Replay sin cámara.** `uv run mekasa-board --simulate` pasa datos sintéticos por la cadena real: validez → ubicación → estimador → suavizado → tablero → sesión → voz. Lo hace en los 3 modos oculares y sale con código 1 si hubo una emisión en un segmento inseguro.
 
-## Pruebas realmente ejecutadas (2026-11-16)
+## Pruebas realmente ejecutadas
 
 | Prueba | Resultado |
 | --- | --- |
@@ -45,7 +43,7 @@ Bloqueos de cero emisión cubiertos por tests deterministas (`tests/test_communi
 - mirada fija sobre la opción ya confirmada;
 - caída de señal a mitad del dwell y confirmación pendiente vencida.
 
-## Sesión guiada con persona, 2026-11-16 (una persona, un equipo, una sesión)
+## Sesión guiada con persona (una persona, un equipo, una sesión)
 
 Equipo: Windows 11 Pro 26300, Intel familia 6 modelo 151 (20 CPU lógicas), cámara índice 0 MSMF 640×480.
 
@@ -66,7 +64,7 @@ Hallazgos:
 3. **La señal vertical del ojo derecho casi no varía** (iris_y 0,37 arriba contra 0,355 abajo); la del izquierdo sí. Hipótesis: los pares de párpado usados para normalizar no son simétricos entre ojos (`_LEFT_EYE` usa 387/373 y `_RIGHT_EYE` usa 158/153; los espejos serían 385/380 o 160/144). Hay que verificarlo antes de confiar en el modo RIGHT.
 4. **La deriva de postura entre bloques** (pitch de 7° a 11°) degrada la precisión fina. La corrección de sesión todavía no se aplica en el tablero.
 
-## Cambios tras la sesión del 2026-11-16 (precisión, duración, UI)
+## Cambios tras la primera sesión guiada (precisión, duración, UI)
 
 | Cambio | Motivo | Estado |
 | --- | --- | --- |
@@ -79,7 +77,7 @@ Hallazgos:
 | UI: texto con acentos (Pillow y Segoe UI), indicador por ojo, aviso de distancia, pantalla de ajuste | SÍ se veía como SI; faltaba saber por qué no seleccionaba | verificado con capturas renderizadas |
 | `scripts/mekasa.ps1` | Levantar y probar con un comando | `simular` y `tests` ejecutados |
 
-## Análisis de la sesión de las 20:20 y rediseño (2026-11-16, noche)
+## Análisis de la segunda sesión (B) y rediseño
 
 Síntoma informado: los cuadrantes superiores funcionan; abajo-izquierda y abajo-derecha no.
 
@@ -90,7 +88,7 @@ Síntoma informado: los cuadrantes superiores funcionan; abajo-izquierda y abajo
    - el reporte guiado guarda una lista fija de features que no las incluía (`services/reporting.py`, `_PERSISTED_FEATURES`).
 
    El script solo mostró una advertencia, así que regiones y tablero usaron la calibración de las 16:52. **Fue un error mío de la ronda anterior**: probé la calibración solo con reportes viejos. Ya está corregido: el reporte guarda `*_iris_v`. El flujo nuevo ya no depende de ese paso.
-2. **Una calibración de otra sesión no sirve.** Las dos validaciones guiadas de hoy son A (16:36) y B (20:20). Acierto 2×2 a nivel frame, Ridge sobre landmarks:
+2. **Una calibración de otra sesión no sirve.** Hubo dos validaciones guiadas, A y B, en la misma jornada. Acierto 2×2 a nivel frame, Ridge sobre landmarks:
 
    | Entrenado → evaluado | Acierto 2×2 | Horizontal | Vertical |
    | --- | --- | --- | --- |
@@ -132,7 +130,7 @@ Limitaciones:
 - La única medida honesta del tablero es `mekasa.ps1 prueba`.
 - Son dos sesiones de un equipo y no está claro si fue una persona o dos.
 
-## Tablero de conversación (2026-11-16, noche)
+## Tablero de conversación
 
 Pedido: comunicar más que SÍ / NO / AGUA / AYUDA, con necesidades reales, y armar un mensaje completo antes de decirlo.
 
@@ -150,7 +148,7 @@ Sin medir con persona:
 - **Fatiga ocular.** Según la encuesta en ELA, es la causa principal de abandono del seguimiento ocular.
 - **Disparos accidentales de URGENTE.** Están en un solo paso a propósito; si molestan, se puede pedir confirmación solo para URGENTE (no está implementado).
 
-## Selección por parpadeo y empezar/parar con 4 parpadeos (2026-11-16, noche)
+## Selección por parpadeo y empezar/parar con 4 parpadeos
 
 Pedido: poder empezar y parar cuando la persona quiere elegir, y una modalidad donde se elige parpadeando 2 veces, no por tiempo.
 
@@ -169,7 +167,7 @@ Sin medir con persona:
 
 Sugerencia: medir 10 dobles parpadeos voluntarios y 5 minutos de reposo (falsas selecciones), y ajustar `blink_*`.
 
-## Modo combinado y atajos por parpadeo (2026-11-16, noche)
+## Modo combinado y atajos por parpadeo
 
 Pedido: mirada y parpadeo a la vez. Mirar 3 s elige; 3 parpadeos eligen; 5 dicen el mensaje; 7 llaman a urgencias.
 
@@ -187,7 +185,7 @@ Sin medir con persona:
 - **El temporizador se congela 0,8 s** después de cada parpadeo espontáneo: elegir por tiempo puede tardar algo más.
 - **Urgencias falsas** por series largas involuntarias.
 
-## Guiños: calibración por ojo y elegir con 3 guiños (2026-11-16, noche)
+## Guiños: calibración por ojo y elegir con 3 guiños
 
 | Parte | Detalle | Estado |
 | --- | --- | --- |
@@ -202,7 +200,7 @@ Sin medir con persona:
 - Si puede guiñar con cada ojo de forma confiable.
 - Si al guiñar el otro ojo se entrecierra lo suficiente para que el guiño se lea como parpadeo de ambos ojos (entonces no cuenta).
 
-## Primero parpadear, después mirar; urgencia con 7 o más (2026-11-17)
+## Primero parpadear, después mirar; urgencia con 7 o más
 
 Comentario de la persona: "al pestañear o guiñar el ojo a veces se va para otro lado", y mirar fijo mientras se parpadea cuesta.
 
@@ -215,7 +213,7 @@ Comentario de la persona: "al pestañear o guiñar el ojo a veces se va para otr
 
 Sin medir con persona: si 1 s de mirada después del gesto es cómodo (`intent_focus_seconds`) y si 0,3 s de congelamiento alcanzan.
 
-## Menos descalibración al parpadear y más rango de distancia (2026-11-17)
+## Menos descalibración al parpadear y más rango de distancia
 
 Comentario: "cuando uno pestañea a veces se descalibra", "si se mueve mucho", "más rango si está lejos o cerca".
 
@@ -232,10 +230,10 @@ Comentario: "cuando uno pestañea a veces se descalibra", "si se mueve mucho", "
 | Sesión | Variante | Todos los cuadros | ≤ 1 s después de un parpadeo | Error p90 después de un parpadeo |
 | --- | --- | --- | --- | --- |
 | A | Media móvil que se reinicia (original) | 98,0 % | 88,3 % | 0,272 |
-| A | Más congelamiento de 0,3 s (antes de hoy) | 100 % | 100 % | 0,178 |
+| A | Más congelamiento de 0,3 s (versión anterior) | 100 % | 100 % | 0,178 |
 | A | **Suavizado robusto + congelamiento** | 100 % | 100 % | **0,162** |
 | B | Media móvil que se reinicia (original) | 67,9 % | 75,9 % | 0,602 |
-| B | Más congelamiento de 0,3 s (antes de hoy) | 70,4 % | 82,8 % | 0,310 |
+| B | Más congelamiento de 0,3 s (versión anterior) | 70,4 % | 82,8 % | 0,310 |
 | B | **Suavizado robusto + congelamiento** | **84,3 %** | **100 %** | **0,230** |
 
 El factor 1,35 se comparó con 1,0 y 1,25 sobre los mismos datos (B, todos los cuadros: 78,6 / 81,8 / 84,3 %). Elegido sobre estas mismas sesiones: confirmar en otra.
@@ -250,11 +248,11 @@ El factor 1,35 se comparó con 1,0 y 1,25 sobre los mismos datos (B, todos los c
 
 La compensación de distancia sigue siendo una hipótesis de ingeniería. Las sesiones grabadas son a una sola distancia, así que el rango nuevo **no está medido**. A rostros chicos (lejos), los puntos del iris y las imágenes del ojo tienen menos píxeles y más ruido.
 
-## Revisión de registros y corrección "abajo no detecta" (2026-11-17)
+## Revisión de registros y corrección "abajo no detecta"
 
 **Registros disponibles.** Solo quedaba el reporte de la última sesión (23:39). Cada sesión sobrescribía `board-session-latest.json`, así que las sesiones anteriores se perdieron, incluida la de la otra persona con lentes. Ahora cada sesión se guarda también en `work/communication/history/` y cada calibración en `work/calibration/<perfil>/history/`. Con `-Perfil <etiqueta>` cada persona tiene sus propias calibraciones.
 
-**Última sesión (combinado, ambos ojos, 163 s):**
+**Sesión de prueba (combinado, ambos ojos, 163 s):**
 
 - **Calibración** (validación cruzada, optimista): 98 % 2×2, abajo 100 %. Eligió puntos del rostro; con imagen del ojo daba 97 %. Guiños reconocidos en los dos ojos (5 y 4).
 - **Tablero:** 8 mensajes (7 por mirada, 1 por guiño). Pero **30 % de los ticks sin mirada utilizable** (934 "ojo no utilizable", 681 "sin predicción"), 24 % del tiempo sin señal y 14 % recuperándola.
@@ -269,12 +267,12 @@ La compensación de distancia sigue siendo una hipótesis de ingeniería. Las se
    - en la sesión B se siguen detectando el 94 % de los parpadeos reales.
 3. **Los umbrales de guiño mezclaban cuadros de parpadeo** en la "apertura normal más baja": quedaron en 0,024 y 0,050. Ahora se calculan solo con cuadros con ambos ojos abiertos (percentil 10).
 
-**Versión final contra la de ayer** (A/B, ronda 3 apartada; con la mirada más baja: apertura × 0,8):
+**Versión final contra la anterior** (A/B, ronda 3 apartada; con la mirada más baja: apertura × 0,8):
 
 | | A, todos | A, abajo | B, todos | B, abajo | cuadros retenidos (B) |
 | --- | --- | --- | --- | --- | --- |
-| Tal como se grabó, ayer → hoy | 99,7 → 100 % | 100 → 100 % | 83,0 → 83,0 % | 70,5 → 70,5 % | 2,3 → 1,1 % |
-| Mirada más baja, ayer → hoy | 99,7 → 100 % | 100 → 100 % | 97,5 → 97,5 % | 100 → 100 % | 6,3 → 1,0 % |
+| Tal como se grabó, anterior → final | 99,7 → 100 % | 100 → 100 % | 83,0 → 83,0 % | 70,5 → 70,5 % | 2,3 → 1,1 % |
+| Mirada más baja, anterior → final | 99,7 → 100 % | 100 → 100 % | 97,5 → 97,5 % | 100 → 100 % | 6,3 → 1,0 % |
 
 **Lentes y silla:**
 
@@ -282,7 +280,7 @@ La compensación de distancia sigue siendo una hipótesis de ingeniería. Las se
 - Lo de la silla se reprodujo con la simulación de "mirar más abajo".
 - Recomendación: calibrar **después** de acomodar la silla. Si cambia la altura, recalibrar con `K`; el reajuste automático actúa solo si el rostro se corre más de 0,10 de la imagen.
 
-## Adaptación continua mientras se usa (2026-11-17)
+## Adaptación continua mientras se usa
 
 Pedido: que la calibración se siga ajustando al elegir palabras y responda a los movimientos.
 
@@ -338,7 +336,7 @@ El desarrollo propio incluye:
 
 ## Resultados por modo con baseline y modelo adaptado
 
-Baseline Ridge por modo: ver la sesión del 2026-11-16 arriba. **No hay modelo adaptado todavía** (hito 3). El resultado anterior es del 2026-09-21, en modo binocular y con distancia mayor:
+Baseline Ridge por modo: ver la sesión guiada más arriba. **No hay modelo adaptado todavía** (hito 3). El resultado anterior, en modo binocular y con distancia mayor:
 
 - acierto por blanco fijo: 63 %;
 - error mediano: 125,6 px;

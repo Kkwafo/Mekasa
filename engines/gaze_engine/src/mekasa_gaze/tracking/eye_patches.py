@@ -1,6 +1,6 @@
 """Eye-aligned appearance patches for personal gaze regression.
 
-Why: on 2026-11-16 the landmark iris coordinates carried almost no vertical gaze signal in one
+Why: the landmark iris coordinates carried almost no vertical gaze signal in one
 of two sessions (lid-normalized ``iris_y`` was flat; only eye aperture moved). Low-resolution
 eye images capture what landmarks drop: how much sclera shows above and below the iris and the
 shape of the upper lid, which follows vertical gaze. Ridge regression on small normalized eye

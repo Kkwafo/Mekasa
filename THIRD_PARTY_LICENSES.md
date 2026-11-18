@@ -4,7 +4,7 @@ The Python environment is exactly recorded in `uv.lock`, but this file is not ye
 
 ## Experiment 001 model
 
-The MediaPipe Face Landmarker task bundle is fetched from Google's documented model URL and verified by checksum. It is not committed or redistributed by Mekasa. The model page displayed during the 2026-09-19 review did not state an artifact license in its model table, so redistribution remains blocked pending explicit license verification. See `models/gaze/mediapipe-face-landmarker/metadata.json`.
+The MediaPipe Face Landmarker task bundle is fetched from Google's documented model URL and verified by checksum. It is not committed or redistributed by Mekasa. The model page displayed during the review did not state an artifact license in its model table, so redistribution remains blocked pending explicit license verification. See `models/gaze/mediapipe-face-landmarker/metadata.json`.
 
 ## Source dependencies
 

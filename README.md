@@ -56,7 +56,7 @@ En esa misma carpeta (`%LOCALAPPDATA%\Mekasa`) quedan las calibraciones, los rep
 
 Después de un ACV, una persona puede perder de golpe el habla y el movimiento, y quedar consciente pero sin forma de decir que tiene sed, que algo le duele o que necesita ayuda. Los sistemas comerciales que leen la mirada existen, pero suelen costar miles de dólares, usar cámaras especiales o enviar datos a la nube.
 
-Mekasa empezó en septiembre de 2026 con una pregunta: **¿alcanza una cámara web común para que alguien vuelva a hablar?**
+Mekasa empezó con una pregunta: **¿alcanza una cámara web común para que alguien vuelva a hablar?**
 
 - Primero se midió qué tan bien se pueden seguir los ojos con una cámara común a 30 cuadros por segundo.
 - Después vino la calibración personal y un tablero de 4 casilleros, la grilla con la que la precisión medida fue mejor.

@@ -9,7 +9,7 @@ Estados posibles de cada cifra:
 
 El error angular, el error en pantalla y el acierto en la tarea de comunicación se registran por separado. Los grados se convierten a unidades de pantalla solo si hay una geometría medida (distancia, tamaño y resolución). No hacemos esa conversión para ninguna fila de esta tabla.
 
-Revisión: 2026-11-16. Fuentes de difícil acceso:
+Fuentes de difícil acceso:
 
 - `gazecapture.csail.mit.edu` rechazó la conexión.
 - Los artículos de PMC devolvieron una verificación de navegador que no intentamos sortear.
@@ -34,12 +34,12 @@ Revisión: 2026-11-16. Fuentes de difícil acceso:
 
 | Medición | Valor | Estado | Fuente |
 | --- | --- | --- | --- |
-| Captura y detección, i5-8250U, persona presente | 901/901 frames `TRACKING_GOOD`, 29,88 FPS | medido en Mekasa (2026-09-20) | `research/experiments/001-eye-feature-extraction/results/2026-09-20-windows-i5-8250u-dynamic-uncontrolled-gaze.json` |
-| Captura y detección en el equipo actual (20 CPU lógicas), sin persona estable delante | 282/901 frames `TRACKING_GOOD` (31,3 %), 30,01 FPS, features p50 3,2 ms | medido en Mekasa (2026-11-16) | `results/latest.json` (no versionado). **Es una prueba de captura, no de selección.** |
-| Validación guiada de 9 puntos con modelo Ridge, distancia mayor | Acierto por blanco fijo 63,09 %, error mediano 125,6 px y p90 174,0 px (783 muestras) | medido en Mekasa (2026-09-21) | Historial git, commit `424a5d0` |
-| 4 regiones con corrección de sesión | 7/8 ensayos puntuados correctos (87,5 %), 8 ensayos en 1 sesión | medido en Mekasa (2026-09-21) | Historial git, `research/experiments/003-region-selection/RESULTS.md` antes de `05edf42` |
-| Ridge sobre landmarks, misma sesión contra otra sesión (A 16:36, B 20:20) | 2×2 frame: A→A 96–100 %, A→B 26–47 %, B→A 15–36 %; A→B con ajuste de 4 puntos 70–72 % | medido en Mekasa (2026-11-16) | `docs/STATUS.md`, análisis de la noche |
-| Calibración de sesión, 2 rondas + movimiento de cabeza, landmarks, validación cruzada entre rondas | BOTH: A 95 % (fijación 100 %), B 98 % (fijación 100 %); sin el segmento de cabeza: A 81 %, B 94 % | medido en Mekasa (reanálisis, 2026-11-16) | `docs/STATUS.md` |
-| Suavizado robusto a parpadeos (mediana + estimación retenida con el párpado a medio abrir) contra la media móvil anterior | Sesión B, ronda 3 apartada: 2×2 por cuadro 70,4 → 84,3 %; ≤ 1 s tras un parpadeo 82,8 → 100 %; error p90 tras un parpadeo 0,310 → 0,230. Sesión A: 100 % en ambos casos, p90 0,178 → 0,162 | medido en Mekasa (reanálisis, 2026-11-17) | `docs/STATUS.md` |
+| Captura y detección, i5-8250U, persona presente | 901/901 frames `TRACKING_GOOD`, 29,88 FPS | medido en Mekasa | Historial git (reportes crudos retirados) |
+| Captura y detección en el equipo actual (20 CPU lógicas), sin persona estable delante | 282/901 frames `TRACKING_GOOD` (31,3 %), 30,01 FPS, features p50 3,2 ms | medido en Mekasa | `results/latest.json` (no versionado). **Es una prueba de captura, no de selección.** |
+| Validación guiada de 9 puntos con modelo Ridge, distancia mayor | Acierto por blanco fijo 63,09 %, error mediano 125,6 px y p90 174,0 px (783 muestras) | medido en Mekasa | Historial git, commit `424a5d0` |
+| 4 regiones con corrección de sesión | 7/8 ensayos puntuados correctos (87,5 %), 8 ensayos en 1 sesión | medido en Mekasa | Historial git, `research/experiments/003-region-selection/RESULTS.md` antes de `05edf42` |
+| Ridge sobre landmarks, misma sesión contra otra sesión (A y B) | 2×2 frame: A→A 96–100 %, A→B 26–47 %, B→A 15–36 %; A→B con ajuste de 4 puntos 70–72 % | medido en Mekasa | `docs/STATUS.md`, análisis de la noche |
+| Calibración de sesión, 2 rondas + movimiento de cabeza, landmarks, validación cruzada entre rondas | BOTH: A 95 % (fijación 100 %), B 98 % (fijación 100 %); sin el segmento de cabeza: A 81 %, B 94 % | medido en Mekasa (reanálisis) | `docs/STATUS.md` |
+| Suavizado robusto a parpadeos (mediana + estimación retenida con el párpado a medio abrir) contra la media móvil anterior | Sesión B, ronda 3 apartada: 2×2 por cuadro 70,4 → 84,3 %; ≤ 1 s tras un parpadeo 82,8 → 100 %; error p90 tras un parpadeo 0,310 → 0,230. Sesión A: 100 % en ambos casos, p90 0,178 → 0,162 | medido en Mekasa (reanálisis) | `docs/STATUS.md` |
 | Tablero, replay sintético, 3 modos oculares | 0 emisiones en las condiciones inseguras; SÍ, AGUA y AYUDA comunicados | verificado en replay | `uv run mekasa-board --simulate` |
-| Tablero, hardware real sin ventana, 15 s, sin calibración | 211 frames, 14,07 FPS efectivos, captura→decisión p50 18,4 ms y p95 30,6 ms, 0 emisiones | medido en Mekasa (2026-11-16) | `docs/STATUS.md` |
+| Tablero, hardware real sin ventana, 15 s, sin calibración | 211 frames, 14,07 FPS efectivos, captura→decisión p50 18,4 ms y p95 30,6 ms, 0 emisiones | medido en Mekasa | `docs/STATUS.md` |
